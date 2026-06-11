@@ -167,7 +167,7 @@ pnpm --filter @eventform/web dev
 | `apps/web` | 17 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
 | `infra/cdk` | 14 | AuthStack + KmsStack CloudFormation template assertions (no AWS) |
 | **Total** | **153** | unit + integration |
-| **Playwright smoke** | 1 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
+| **Playwright smoke** | 2 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
 
 Run all unit/integration suites:
 ```bash

@@ -18,7 +18,7 @@ export interface ApiConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     port: Number(env.PORT ?? 3001),
-    corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(","),
+    corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(",").map((o) => o.trim()),
     databaseUrlApi:
       env.DATABASE_URL_API ?? "postgres://app_api:app_api_dev@localhost:5432/eventform",
     databaseUrlAdmin:
@@ -28,9 +28,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     cognitoClientId: env.COGNITO_CLIENT_ID ?? "",
     trustProxy: env.TRUST_PROXY === "1",
     kmsKeyId: env.KMS_KEY_ID ?? "alias/eventform-endpoint-secrets",
-    // LocalStack KMS is the provider in dev AND prod (on the EC2 it's
-    // http://localstack:4566 — set by the Phase 5 compose). Real AWS KMS is
-    // not a deployment target; see spec §Endpoint secret encryption.
+    // LocalStack KMS is the encryption provider in dev and prod (in prod the
+    // compose network resolves it at http://localstack:4566). Real AWS KMS is
+    // not a deployment target.
     awsEndpointUrl: env.AWS_ENDPOINT_URL ?? "http://localhost:4566",
     awsRegion: env.AWS_REGION ?? "us-east-1",
     throttleTtlSeconds: Number(env.THROTTLE_TTL_SECONDS ?? 60),

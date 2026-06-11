@@ -55,7 +55,7 @@ export default function LoginPage() {
           <CardTitle>Sign in to Eventform</CardTitle>
           <CardDescription>
             Dev sign-in — enter any handle to get started.{" "}
-            Google via Cognito arrives with the production deploy.
+            Google sign-in via Cognito is used in production builds.
           </CardDescription>
         </CardHeader>
         <CardContent>

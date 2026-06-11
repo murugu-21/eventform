@@ -10,7 +10,7 @@ export function generateEndpointSecret(): string {
 
 export interface SecretCipherOptions {
   keyId: string;
-  /** LocalStack in dev/prod-on-EC2; omit for real AWS KMS. */
+  /** LocalStack endpoint in dev and prod; omit for real AWS KMS. */
   endpoint?: string;
   region?: string;
   client?: KMSClient;

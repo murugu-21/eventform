@@ -20,7 +20,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform",
     kafkaBrokers: (env.KAFKA_BROKERS ?? "localhost:29092").split(","),
     kmsKeyId: env.KMS_KEY_ID ?? "alias/eventform-endpoint-secrets",
-    // LocalStack KMS in dev AND prod (EC2: http://localstack:4566 via Phase 5 compose).
+    // LocalStack KMS in dev and prod (prod compose resolves it at http://localstack:4566).
     awsEndpointUrl: env.AWS_ENDPOINT_URL ?? "http://localhost:4566",
     awsRegion: env.AWS_REGION ?? "us-east-1",
     webhookTimeoutMs: Number(env.WEBHOOK_TIMEOUT_MS ?? 10000),

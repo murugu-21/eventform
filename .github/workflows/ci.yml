@@ -40,6 +40,11 @@ jobs:
         run: pnpm db:up
         timeout-minutes: 5
 
+      - name: Run migrations (tables, roles, RLS policies)
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
+
       - name: Register Debezium connector
         run: pnpm connect:register
 
@@ -90,8 +95,18 @@ jobs:
         run: pnpm db:up
         timeout-minutes: 5
 
+      - name: Run migrations (tables, roles, RLS policies)
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
+
       - name: Register Debezium connector
         run: pnpm connect:register
+
+      - name: Start webhook sink (smoke test delivery target)
+        run: |
+          node -e 'require("http").createServer((q,s)=>{let b="";q.on("data",c=>b+=c);q.on("end",()=>s.end("ok"))}).listen(9099,"127.0.0.1")' &
+          echo "SINK_PID=$!" >> "$GITHUB_ENV"
 
       - name: Start API in background
         run: |
@@ -99,7 +114,7 @@ jobs:
           echo "API_PID=$!" >> "$GITHUB_ENV"
         env:
           PORT: "3001"
-          DATABASE_URL_API: postgres://eventform:eventform@localhost:5432/eventform
+          DATABASE_URL_API: postgres://app_api:app_api_dev@localhost:5432/eventform
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
           AUTH_MODE: dev
           CORS_ORIGINS: "http://localhost:5173"
@@ -116,7 +131,7 @@ jobs:
           echo "WORKER_PID=$!" >> "$GITHUB_ENV"
         env:
           WORKER_PORT: "3002"
-          DATABASE_URL_WORKER: postgres://eventform:eventform@localhost:5432/eventform
+          DATABASE_URL_WORKER: postgres://app_worker:app_worker_dev@localhost:5432/eventform
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
           KAFKA_BROKERS: localhost:29092
           AWS_ENDPOINT_URL: http://localhost:4566

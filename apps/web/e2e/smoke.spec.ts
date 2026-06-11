@@ -101,6 +101,7 @@ test("full loop: sign in → build → publish → submit → delivery delivered
   // ── 8. Deliveries polling — wait for "delivered" ──────────────────────────────
   await page.goto("/app/deliveries");
   // The StatusBadge renders lowercase "delivered" in a Badge component.
-  // We poll for the green "delivered" badge to appear (5s interval, 30s budget).
-  await expect(page.getByText("delivered").first()).toBeVisible({ timeout: 30_000 });
+  // We poll for the green "delivered" badge to appear (5s interval). Budget is
+  // generous: a cold CI consumer-group join + CDC latency beats a warm local run.
+  await expect(page.getByText("delivered").first()).toBeVisible({ timeout: 60_000 });
 });

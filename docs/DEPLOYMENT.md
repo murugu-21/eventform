@@ -277,7 +277,7 @@ After the first deploy, verify the following manually:
 4. Go to **Endpoints** → New endpoint → paste `https://webhook.site/<your-id>` →
    create → save the `whsec_` secret.
 5. Return to the public form tab, fill in `TypeScript`, submit.
-6. Switch to **Deliveries** — delivery appears in ~3 s.
+6. Switch to **Deliveries** — delivery appears in ~5 s.
 7. Open webhook.site — show the signed payload with `X-Eventform-Signature` and
    `X-Eventform-Event-Id` headers.
 8. To demo failure + retry: update the endpoint URL to `https://httpstat.us/500`,

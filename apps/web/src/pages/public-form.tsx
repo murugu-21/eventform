@@ -268,7 +268,7 @@ function FormView({ form }: { form: PublicForm }) {
 export default function PublicFormPage() {
   const { slug } = useParams<{ slug: string }>();
 
-  const { data: form, isLoading, isError, error } = useQuery({
+  const { data: form, isLoading, isError } = useQuery({
     queryKey: ["public-form", slug],
     queryFn: () => api.publicGetForm(slug!),
     enabled: !!slug,
@@ -287,11 +287,8 @@ export default function PublicFormPage() {
     );
   }
 
-  // 404 or any error → friendly not-found
+  // 404 (draft/unknown slug) or any load error → friendly not-found.
   if (isError || !form) {
-    const is404 = error instanceof ApiError && error.status === 404;
-    // Non-404 errors show not-found too (defensive — form may not exist)
-    void is404;
     return <FormNotFound />;
   }
 

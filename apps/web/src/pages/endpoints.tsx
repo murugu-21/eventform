@@ -78,11 +78,11 @@ function verifyEventformSignature(
     .update(\`\${timestamp}.\${rawBody}\`)
     .digest("hex");
 
-  // Constant-time comparison (timing-safe)
-  return crypto.timingSafeEqual(
-    Buffer.from(mac, "hex"),
-    Buffer.from(signature, "hex"),
-  );
+  // The header is "sha256=<hex>" — strip the prefix before comparing.
+  const provided = signature.replace(/^sha256=/, "");
+  const a = Buffer.from(mac, "hex");
+  const b = Buffer.from(provided, "hex");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }`;
 
 // ── Create Endpoint Dialog ───────────────────────────────────────────────────
