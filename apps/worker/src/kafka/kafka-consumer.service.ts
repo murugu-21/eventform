@@ -26,6 +26,14 @@ export class KafkaConsumerService implements OnApplicationBootstrap, OnApplicati
       logLevel: logLevel.WARN,
     });
     this.consumer = kafka.consumer({ groupId: CONSUMER_GROUP });
+
+    this.consumer.on(this.consumer.events.CRASH, ({ payload }) => {
+      if (!payload.restart) {
+        this.logger.error(`consumer crashed fatally (${payload.error?.message}); exiting for supervisor restart`);
+        process.exit(1);
+      }
+    });
+
     await this.consumer.connect();
     await this.consumer.subscribe({ topic: EVENTS_TOPIC, fromBeginning: false });
 
