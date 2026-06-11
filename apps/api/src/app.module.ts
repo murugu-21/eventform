@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module";
 import { FormsModule } from "./forms/forms.module";
 import { EndpointsModule } from "./endpoints/endpoints.module";
 import { PublicModule } from "./public/public.module";
+import { SubmissionsModule } from "./submissions/submissions.module";
 import { DrizzleExceptionFilter } from "./drizzle-exception.filter";
 import { loadConfig } from "./config";
 
@@ -17,6 +18,7 @@ import { loadConfig } from "./config";
     FormsModule,
     EndpointsModule,
     PublicModule,
+    SubmissionsModule,
     ThrottlerModule.forRoot({
       throttlers: [
         { ttl: seconds(loadConfig().throttleTtlSeconds), limit: loadConfig().throttleLimit },
