@@ -26,11 +26,15 @@ export class DrizzleExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(DrizzleExceptionFilter.name);
 
   catch(err: unknown, host: ArgumentsHost): void {
-    // Pass HttpExceptions through to NestJS's default serialisation.
+    // Pass HttpExceptions through, matching NestJS's default serialisation:
+    // string responses are wrapped as { statusCode, message }.
     if (err instanceof HttpException) {
       const res = host.switchToHttp().getResponse<Response>();
       const status = err.getStatus();
-      res.status(status).json(err.getResponse());
+      const body = err.getResponse();
+      res
+        .status(status)
+        .json(typeof body === "string" ? { statusCode: status, message: body } : body);
       return;
     }
     // Detect DrizzleQueryError by shape (handles instanceof mismatches across
@@ -39,7 +43,12 @@ export class DrizzleExceptionFilter implements ExceptionFilter {
       this.handleDrizzle(err as DrizzleQueryError, host);
       return;
     }
-    // Unknown error → sanitised 500.
+    // Unknown error → sanitised 500, but log it so failures stay debuggable.
+    // Safe to log: only DrizzleQueryError messages embed SQL/params, and those
+    // are handled above.
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    this.logger.error(message, stack);
     const res = host.switchToHttp().getResponse<Response>();
     res.status(500).json({ statusCode: 500, message: "Internal server error" });
   }
