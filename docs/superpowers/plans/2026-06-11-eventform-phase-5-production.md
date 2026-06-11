@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make eventform deployable to `eventform.murugappan.dev` / `eventform-api.murugappan.dev` on one cheap VPS (any provider): real Cognito Google OAuth (verifier + SPA PKCE flow, both testable locally without AWS), production Docker images behind Caddy TLS, a prod compose stack with hardened bootstrap, AWS CDK (AuthStack + ComputeStack) with assertion tests, and CI/CD — ending with a DEPLOYMENT.md handoff checklist for the steps only the account owner can do (AWS account for Cognito only, Google OAuth client, VPS + DNS, GitHub secrets).
+**Goal:** Make eventform deployable to `eventform.murugappan.dev` / `eventform-api.murugappan.dev` on one cheap VPS (any provider): real Cognito Google OAuth (verifier + SPA PKCE flow, both testable locally without AWS), production Docker images behind Caddy TLS, a prod compose stack with hardened bootstrap, AWS CDK (AuthStack + KmsStack) with assertion tests, and CI/CD — ending with a DEPLOYMENT.md handoff checklist for the steps only the account owner can do (AWS account for Cognito only, Google OAuth client, VPS + DNS, GitHub secrets).
 
 **Architecture:** The API's `TokenVerifier` seam gets a `CognitoTokenVerifier` (jose JWKS verify; unit-tested against a locally generated keypair — no AWS needed). The SPA's auth seam gets a Cognito provider (authorization-code + PKCE against the hosted UI) selected by `VITE_AUTH_MODE`. Prod runs 8 containers via `docker-compose.prod.yml`: caddy (TLS + web static + API proxy), api, worker, postgres, kafka, connect, connect-init (one-shot connector registration), localstack (KMS only, fixed-material boot). CDK defines the Cognito pool + Google IdP (AuthStack, deployed to real AWS — the only real-AWS resource, free tier) and the LocalStack KMS key/alias (KmsStack, deployed via cdklocal into the dev/prod LocalStack container); both covered by `Template.fromStack` assertion tests. Compute is deliberately NOT IaC: the prod compose runs on any Docker VPS (EC2→VPS pivot per user decision 2026-06-11 — cost + lock-in). Branch: `feat/phase-5-production`.
 
@@ -30,7 +30,7 @@ infra/caddy/Dockerfile · infra/caddy/Caddyfile
 infra/compose/docker-compose.prod.yml
 infra/prod/bootstrap.sh                          KMS material, role passwords, schema hardening
 infra/cdk/  (package.json, cdk.json, tsconfig, bin/eventform.ts,
-             lib/auth-stack.ts, lib/compute-stack.ts, test/*.test.ts)
+             lib/auth-stack.ts, lib/kms-stack.ts, test/*.test.ts)
 .github/workflows/ci.yml · .github/workflows/deploy.yml
 docs/DEPLOYMENT.md                               the human handoff checklist
 README.md                                        final recruiter-facing rewrite
