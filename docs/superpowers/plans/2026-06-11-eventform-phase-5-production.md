@@ -384,3 +384,51 @@ CMD ["node", "dist/main.js"]
 - All local suites green (~133 + smoke); cdk assertion tests + synth pass; all three prod images build; the LOCAL prod-mode compose boot serves the full loop through Caddy.
 - AUTH_MODE seams proven on both sides (cognito verifier unit-tested via local JWKS; PKCE helpers vector-tested) — flipping env vars is the only deploy-time change.
 - DEPLOYMENT.md gets a human from zero to deployed with no undocumented step; every carried-forward hard requirement (trust proxy, cognito pinned, schema hardening, password rotation, KMS material) is implemented, not just documented.
+
+---
+
+## Implementation notes (deviations)
+
+**EC2 → VPS pivot (mid-phase, 2026-06-11):** The original plan called for an EC2 ComputeStack.
+The user pivoted to a generic VPS (Hetzner / DO / Vultr) to avoid AWS lock-in and reduce cost.
+CDK scope shrank to AuthStack (Cognito, real AWS) + KmsStack (LocalStack via cdklocal). No
+ComputeStack was ever written. DEPLOYMENT.md reflects the VPS path.
+
+**Migrate-image mechanism:** Migrations are packaged as a dedicated `migrate` service in the
+prod compose (`packages/db/Dockerfile.migrate`), referencing
+`ghcr.io/murugu21/eventform-migrate:latest`. They run via
+`docker compose run --rm migrate` (profile `setup`). This was simpler and more reliable than
+running migrations inside the API container on startup.
+
+**`pnpm deploy --legacy`:** The API and worker Dockerfiles use
+`pnpm --filter <pkg> deploy --prod --legacy /out` to produce a standalone deployment directory.
+The `--legacy` flag was required to work around pnpm workspace hoisting behaviour in the
+multi-stage build context. Image size is larger than optimal but correctness takes priority.
+
+**KMS_KEY_MATERIAL_FILE default:** The prod compose uses
+`${KMS_KEY_MATERIAL_FILE:-./localstack/dev-key-material.b64}` as a fallback default so the
+compose file is usable in dev overrides without explicitly setting the variable.
+
+**Connect-init password substitution:** The prod connector template
+(`infra/compose/connect/eventform-outbox-prod.json`) contains `${DB_ADMIN_PASSWORD}` as a
+literal string. The `connect-init` one-shot container performs shell substitution via
+`envsubst` before POSTing the config to the Connect REST API.
+
+**aws-cdk-local 3.x:** The CDK package uses `aws-cdk-local` 3.x (matching CDK v2). The
+`cdklocal` CLI wraps `cdk` and redirects all AWS SDK calls to `AWS_ENDPOINT_URL=http://localhost:4566`.
+The KmsStack deploys cleanly to LocalStack Community with this version.
+
+**LocalStack Community Origin=AWS_KMS note:** LocalStack Community reports the KMS key
+`Origin` as `AWS_KMS` rather than `EXTERNAL` even when created with `Origin: EXTERNAL` in
+the CDK template. This is a LocalStack Community limitation — the CDK declaration is honoured
+at the CloudFormation template level (covered by assertion tests), and key material import
+works correctly regardless.
+
+**Final test counts (verified 2026-06-11):**
+- `packages/shared`: 28 tests
+- `packages/db`: 12 tests
+- `apps/api`: 60 tests
+- `apps/worker`: 22 tests
+- `apps/web`: 17 tests
+- `infra/cdk`: 14 tests
+- **Total: 153 unit/integration tests + 1 Playwright smoke (all green)**
