@@ -14,7 +14,7 @@ consumer pipeline. Failed deliveries surface in a UI with manual retry.
 
 - App: `https://eventform.murugappan.dev`
 - API: `https://eventform-api.murugappan.dev`
-- Runs on one EC2 t3.small (AWS free-plan credits) via docker-compose.
+- Runs on one ≥2 GB VPS (any provider) via docker-compose.
 - Repo is public on GitHub, pinned on the profile. The README is part of the product.
 
 ## Decisions made during brainstorming
@@ -31,7 +31,7 @@ consumer pipeline. Failed deliveries surface in a UI with manual retry.
 | LocalStack | Dev: CDK testing (`cdklocal`) + KMS. Prod: runs on the EC2 too, **KMS only** |
 | HMAC secret storage | Never plaintext at rest — KMS-encrypted (LocalStack KMS in dev *and* prod); fixed key material re-imported at boot since Community edition has no persistence |
 | Cognito | Real AWS Cognito (free tier) — LocalStack Community cannot emulate it |
-| EC2 | t3.small (2 GB) — 1 GB micro cannot fit Kafka + Connect + the rest |
+| Hosting | Any Docker-capable VPS with ≥2 GB RAM (Hetzner/DO/Vultr/...) — cheaper than EC2, zero compute lock-in; the prod compose stack is provider-agnostic. (Superseded the original EC2 plan 2026-06-11.) |
 | ORM | Drizzle (SQL-first, clean RLS integration via per-tx `SET LOCAL`) |
 | Architecture | Approach A: two Nest apps; all delivery attempts flow through the outbox |
 
@@ -304,10 +304,14 @@ protection real.
 
 ### CDK (TypeScript, two stacks)
 
-- **AuthStack** — Cognito pool + hosted domain + Google IdP + app client.
-- **ComputeStack** — t3.small EC2 + Elastic IP, security group (80/443/22),
-  user-data bootstraps Docker + compose, Route53 A records for both subdomains
-  (if `murugappan.dev` is not in Route53, stack outputs the EIP to point DNS at).
+- **AuthStack** — Cognito pool + hosted domain + Google IdP + app client
+  (deployed to real AWS — Cognito free tier; the only real-AWS resource).
+- **KmsStack** — the endpoint-secret KMS key + alias, deployed via `cdklocal`
+  into the LocalStack container (dev and prod-VPS alike); the compose boot hook
+  remains as the idempotent material-import + resilience mechanism.
+- Compute is NOT CDK-managed: the prod docker-compose stack runs on any VPS;
+  provisioning is a documented checklist + optional cloud-init snippet.
+  (ComputeStack dropped with the EC2→VPS pivot, 2026-06-11.)
 
 ### LocalStack
 
