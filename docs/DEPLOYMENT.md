@@ -131,9 +131,9 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | Variable | Description | Example |
 |---|---|---|
 | `DB_ADMIN_PASSWORD` | Postgres superuser password | `$(openssl rand -hex 20)` |
-| `APP_API_PASSWORD` | Password for the `app_api` DB role (set by bootstrap.sh) | `$(openssl rand -hex 20)` |
-| `APP_WORKER_PASSWORD` | Password for the `app_worker` DB role (set by bootstrap.sh) | `$(openssl rand -hex 20)` |
-| `KMS_KEY_MATERIAL_FILE` | Absolute host path for the AES-256 key material file (created by bootstrap.sh if missing) | `/etc/eventform/kms-material.b64` |
+| `APP_API_PASSWORD` | Password for the `app_api` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
+| `APP_WORKER_PASSWORD` | Password for the `app_worker` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
+| `KMS_KEY_MATERIAL_FILE` | Absolute host path for the AES-256 key material file (created by gen-kms-material.sh in step 5b) | `/etc/eventform/kms-material.b64` |
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ABC123` |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `1abc2defg3hijkl` |
 | `ACME_EMAIL` | Email for Let's Encrypt registration | `you@example.com` |
@@ -141,56 +141,61 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `API_HOST` | *(optional)* API hostname; default `eventform-api.murugappan.dev` | |
 | `AWS_REGION` | *(optional)* AWS region; default `us-east-1` | |
 
-### 5b. Run bootstrap.sh (first boot only)
+> **First-boot order matters.** KMS key material must exist *before* compose
+> starts (localstack mounts it), and the `app_api`/`app_worker` roles must exist
+> *before* their passwords can be rotated (the migration creates them). Run
+> 5b → 5h in order; each step is idempotent and safe to re-run.
 
-`bootstrap.sh` is idempotent and performs three things:
-
-1. Generates the KMS key material file (AES-256, base64-encoded, mode 600) if
-   it does not already exist. **Back this file up.** Losing it makes all
-   encrypted endpoint secrets irrecoverable.
-2. Rotates the `app_api` and `app_worker` database role passwords.
-3. Revokes `CREATE ON SCHEMA public FROM PUBLIC` (schema hardening).
+### 5b. Generate KMS key material (before anything starts)
 
 ```bash
-# Export env vars first (or source the .env file)
 export KMS_KEY_MATERIAL_FILE=/etc/eventform/kms-material.b64
-export DB_ADMIN_PASSWORD=...
-export APP_API_PASSWORD=...
-export APP_WORKER_PASSWORD=...
-
-bash /opt/eventform/infra/prod/bootstrap.sh
+bash /opt/eventform/infra/prod/gen-kms-material.sh
 ```
 
-### 5c. Start infra services first
+Creates an AES-256 key material file (mode 600) if missing. **Back this file
+up** — losing it makes all encrypted endpoint secrets irrecoverable. Idempotent:
+re-running leaves an existing file untouched.
+
+### 5c. Start the infra tier
 
 ```bash
 cd /opt/eventform/infra/compose
-
-# Bring up the infra tier (postgres, localstack, kafka, connect)
 docker compose -f docker-compose.prod.yml up -d postgres localstack kafka connect
 docker compose -f docker-compose.prod.yml wait postgres localstack kafka connect
 ```
 
-### 5d. Run migrations
+### 5d. Run migrations (creates tables, roles, RLS policies)
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm migrate
 ```
 
-The `migrate` service uses profile `setup` — you can also run:
+The `migrate` service uses profile `setup`; you can also run
+`docker compose -f docker-compose.prod.yml --profile setup up migrate`.
+
+### 5e. Harden the database (rotate role passwords + revoke CREATE)
+
+Runs *after* migrations, because it alters the `app_api`/`app_worker` roles the
+migration just created. It refuses to run (with a clear message) if those roles
+or the postgres container are missing.
+
 ```bash
-docker compose -f docker-compose.prod.yml --profile setup up migrate
+export DB_ADMIN_PASSWORD=...      # same value as in .env
+export APP_API_PASSWORD=...       # same value as in .env
+export APP_WORKER_PASSWORD=...    # same value as in .env
+bash /opt/eventform/infra/prod/bootstrap.sh
 ```
 
-### 5e. Register the Debezium connector
+### 5f. Register the Debezium connector
 
 The `connect-init` service is a one-shot `curl` container that registers the
-connector on every `compose up`. It starts automatically with the stack (step 5f).
+connector on every `compose up`. It starts automatically with the full stack (step 5h).
 
 In prod the connector config is `infra/compose/connect/eventform-outbox-prod.json`,
 which substitutes `${DB_ADMIN_PASSWORD}` at registration time.
 
-### 5f. Deploy KmsStack into LocalStack (optional but recommended)
+### 5g. Deploy KmsStack into LocalStack (optional but recommended)
 
 For fresh environments, deploying `KmsStack` first pins the key ID so that any
 ciphertext you create remains valid across LocalStack restarts.
@@ -207,7 +212,7 @@ If you skip this step, the boot hook (`infra/compose/localstack/ready.d/01-impor
 creates the key and imports material automatically. The two mechanisms are
 compatible — the boot hook is the fallback and the healing mechanism on restarts.
 
-### 5g. Start the full application stack
+### 5h. Start the full application stack
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
