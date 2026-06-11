@@ -1,0 +1,22 @@
+{
+  "name": "eventform-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.177.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "aws-cdk": "^2.177.0",
+    "aws-cdk-local": "^3.0.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.1.4"
+  }
+}

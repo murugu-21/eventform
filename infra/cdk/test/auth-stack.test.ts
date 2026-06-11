@@ -1,0 +1,79 @@
+import { describe, it, expect } from "vitest";
+import * as cdk from "aws-cdk-lib";
+import { Template, Match } from "aws-cdk-lib/assertions";
+import { AuthStack } from "../lib/auth-stack";
+
+function makeStack() {
+  const app = new cdk.App({
+    context: {
+      googleClientId: "dummy-client-id",
+      googleClientSecret: "dummy-client-secret",
+      cognitoDomainPrefix: "eventform-auth",
+    },
+  });
+  return new AuthStack(app, "AuthStack", {
+    env: { account: "123456789012", region: "us-east-1" },
+  });
+}
+
+describe("AuthStack", () => {
+  it("creates a UserPool with self-signup disabled", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
+    });
+  });
+
+  it("creates a Google identity provider with correct scopes", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolIdentityProvider", {
+      ProviderName: "Google",
+      ProviderType: "Google",
+      ProviderDetails: {
+        authorize_scopes: "openid email profile",
+      },
+    });
+  });
+
+  it("creates an app client with authorization-code grant and no secret", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      AllowedOAuthFlows: ["code"],
+      GenerateSecret: false,
+    });
+  });
+
+  it("app client callback URLs include both prod and localhost", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      CallbackURLs: [
+        "https://eventform.murugappan.dev/auth/callback",
+        "http://localhost:5173/auth/callback",
+      ],
+    });
+  });
+
+  it("app client logout URLs include both prod and localhost", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      LogoutURLs: [
+        "https://eventform.murugappan.dev",
+        "http://localhost:5173",
+      ],
+    });
+  });
+
+  it("app client has Google in SupportedIdentityProviders", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      SupportedIdentityProviders: Match.arrayWith(["Google"]),
+    });
+  });
+
+  it("creates a Cognito hosted domain with the configured prefix", () => {
+    const template = Template.fromStack(makeStack());
+    template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {
+      Domain: "eventform-auth",
+    });
+  });
+});
