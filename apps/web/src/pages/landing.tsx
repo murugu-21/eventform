@@ -74,7 +74,7 @@ export default function LandingPage() {
       {/* ── Hero ──────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col items-center justify-center px-6 py-24 text-center gap-6">
         <Badge variant="outline" className="text-xs tracking-wide uppercase">
-          Open-source · Phase 4 demo
+          Open-source portfolio project
         </Badge>
 
         <h1 className="text-5xl font-extrabold tracking-tight leading-tight max-w-2xl">
@@ -216,7 +216,7 @@ export default function LandingPage() {
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
       <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
-        eventform · Phase 4 demo · MIT license
+        eventform · MIT license
       </footer>
     </div>
   );
