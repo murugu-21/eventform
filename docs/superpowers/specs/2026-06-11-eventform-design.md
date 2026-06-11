@@ -28,7 +28,8 @@ consumer pipeline. Failed deliveries surface in a UI with manual retry.
 | Auto retries | 3 attempts (5s / 30s / 2m backoff), then `failed` → manual retry |
 | Demo webhook target | External URLs only (e.g., webhook.site) — no built-in inspector |
 | Field types | Short text + multiple choice only |
-| LocalStack | Dev-only stand-in for testing CDK deploys (`cdklocal`); not on prod EC2 |
+| LocalStack | Dev: CDK testing (`cdklocal`) + KMS. Prod: runs on the EC2 too, **KMS only** |
+| HMAC secret storage | Never plaintext at rest — KMS-encrypted (LocalStack KMS in dev *and* prod); fixed key material re-imported at boot since Community edition has no persistence |
 | Cognito | Real AWS Cognito (free tier) — LocalStack Community cannot emulate it |
 | EC2 | t3.small (2 GB) — 1 GB micro cannot fit Kafka + Connect + the rest |
 | ORM | Drizzle (SQL-first, clean RLS integration via per-tx `SET LOCAL`) |
@@ -50,7 +51,7 @@ eventform/
 └── docs/
 ```
 
-## Runtime topology (6 containers on the EC2)
+## Runtime topology (7 containers on the EC2)
 
 | Container | Role | Notes |
 |---|---|---|
@@ -60,6 +61,7 @@ eventform/
 | postgres | Postgres 16, `wal_level=logical` | |
 | kafka | Single-node Kafka 3.x in KRaft mode (no ZooKeeper), small heap | |
 | connect | Kafka Connect + Debezium Postgres connector (pgoutput) | outbox event router SMT |
+| localstack | KMS only (`SERVICES=kms`) — encrypts endpoint HMAC secrets at rest | boot hook re-imports fixed key material (Community edition has no persistence) |
 
 ## Data model
 
@@ -114,7 +116,7 @@ erDiagram
         uuid tenant_id FK
         text name
         text url
-        text secret "HMAC key"
+        text secret_ciphertext "KMS-encrypted HMAC key"
         boolean active
         timestamptz created_at
     }
@@ -168,7 +170,7 @@ forms             id, tenant_id, title, status(draft|published), public_slug (un
 form_fields       id, form_id, tenant_id, type(text|multiple_choice), label,
                   options jsonb, required, position
 submissions       id, form_id, tenant_id, answers jsonb, submitted_at, source_ip
-endpoints         id, tenant_id, name, url, secret, active
+endpoints         id, tenant_id, name, url, secret_ciphertext (KMS-encrypted), active
 outbox            id uuid (= event id), tenant_id, aggregate_type, aggregate_id,
                   event_type, payload jsonb, created_at              — Debezium source; periodic cleanup
 processed_events  event_id (PK), processed_at                        — consumer idempotency; no RLS
@@ -193,6 +195,32 @@ delivery_attempts id, delivery_id, tenant_id, attempt_no, requested_at,
 - Retry scheduler claims due work: `SELECT … FOR UPDATE SKIP LOCKED LIMIT 10`.
 - Consumer updates a delivery under `FOR UPDATE`, so a manual retry racing an
   in-flight auto attempt cannot double-send.
+
+### Endpoint secret encryption (KMS)
+
+Webhook HMAC secrets are never stored in plaintext.
+
+- **Generation:** API creates `whsec_<48 hex chars>` on endpoint create/rotate.
+- **Encryption:** `KMS Encrypt` against key `alias/eventform-endpoint-secrets`
+  with `EncryptionContext: { tenantId }` — a ciphertext copied across tenants
+  fails to decrypt. The base64 ciphertext blob is what lands in
+  `endpoints.secret_ciphertext`.
+- **Decryption:** the API decrypts on demand for the "reveal secret" UI; the
+  worker decrypts before signing, with a ≤5-minute in-memory cache keyed by
+  endpoint id (invalidated on rotate by ciphertext change).
+- **KMS provider:** LocalStack KMS in dev *and* prod (a `SERVICES=kms`
+  container on the EC2). LocalStack Community has no persistence, so a boot
+  hook (`init/ready.d`) recreates the key with a fixed custom key id
+  (`_custom_id_` tag) as `Origin=EXTERNAL` and re-imports **fixed key
+  material** (BYOK `ImportKeyMaterial` flow) from a file: checked-in dev
+  material locally; a once-generated, root-only file on the EC2 host in prod.
+  Same key id + same material ⇒ old ciphertexts decrypt after every restart.
+- **Honest threat model (README talking point):** with LocalStack the
+  effective root of trust is the key-material file on the host, so this is
+  equivalent in strength to a host-held master key — the genuine win is that a
+  DB dump, backup, or SQL-injection read no longer exposes webhook secrets,
+  while the code path stays byte-for-byte compatible with real AWS KMS
+  (swap the endpoint URL, drop the boot hook).
 
 ## Event flow
 
@@ -227,6 +255,7 @@ Per message:
    - `X-Eventform-Event-Id`
    - `X-Eventform-Timestamp`
    - `X-Eventform-Signature: sha256=HMAC_SHA256(secret, timestamp + "." + rawBody)`
+     (secret decrypted via KMS, cached in memory ≤5 min)
 5. Record `delivery_attempts` row; update delivery:
    - 2xx → `delivered`
    - failure & attempt < 3 → `retrying`, `next_retry_at = now() + (5s|30s|2m)`
@@ -280,13 +309,18 @@ protection real.
   user-data bootstraps Docker + compose, Route53 A records for both subdomains
   (if `murugappan.dev` is not in Route53, stack outputs the EIP to point DNS at).
 
-### LocalStack (dev only)
+### LocalStack
 
-- Local compose includes a LocalStack container; `cdklocal deploy` exercises the
-  CDK code against it. Cognito resources sit behind a CDK context flag
-  (`-c auth=off`) since LocalStack Community cannot emulate Cognito; local dev
-  either uses a dev-mode JWT bypass or points at the real dev user pool.
-- Not deployed to the production EC2.
+- **Dev:** compose includes a LocalStack container serving KMS, and `cdklocal
+  deploy` exercises the CDK code against it. Cognito resources sit behind a CDK
+  context flag (`-c auth=off`) since LocalStack Community cannot emulate
+  Cognito; local dev either uses a dev-mode JWT bypass or points at the real
+  dev user pool.
+- **Prod:** the EC2 compose runs LocalStack with `SERVICES=kms` only, as the
+  encryption provider for endpoint secrets (see *Endpoint secret encryption*).
+  The boot hook re-imports fixed key material from
+  `/etc/eventform/kms-key-material.b64` (generated once by the Phase 5
+  bootstrap, mode 600).
 
 ### CI/CD (GitHub Actions)
 
