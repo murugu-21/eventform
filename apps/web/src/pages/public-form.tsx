@@ -37,7 +37,6 @@ function ThankYou() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="max-w-md w-full p-8 flex flex-col items-center gap-4 text-center">
-        <div className="text-5xl">✅</div>
         <h1 className="text-2xl font-bold">Response recorded</h1>
         <p className="text-muted-foreground text-sm">
           Thanks for your submission. Your response has been saved.
