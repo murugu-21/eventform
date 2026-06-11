@@ -6,6 +6,9 @@ export interface ApiConfig {
   kmsKeyId: string;
   awsEndpointUrl: string;
   awsRegion: string;
+  throttleTtlSeconds: number;
+  throttleLimit: number;
+  publicSubmitLimit: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -22,5 +25,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     // not a deployment target; see spec §Endpoint secret encryption.
     awsEndpointUrl: env.AWS_ENDPOINT_URL ?? "http://localhost:4566",
     awsRegion: env.AWS_REGION ?? "us-east-1",
+    throttleTtlSeconds: Number(env.THROTTLE_TTL_SECONDS ?? 60),
+    throttleLimit: Number(env.THROTTLE_LIMIT ?? 120),
+    publicSubmitLimit: Number(env.PUBLIC_SUBMIT_THROTTLE_LIMIT ?? 10),
   };
 }

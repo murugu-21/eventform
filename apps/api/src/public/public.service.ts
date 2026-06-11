@@ -1,6 +1,11 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
+import { and, eq } from "drizzle-orm";
+import { deliveries, endpoints, outbox, submissions, withTenant } from "@eventform/db";
+import type { SubmissionReceivedEvent } from "@eventform/shared";
 import { API_POOL } from "../db/db.module";
+import { validateAnswers } from "./answers";
 
 export interface PublicField {
   id: string;
@@ -53,5 +58,69 @@ export class PublicService {
   toPublicForm(resolved: ResolvedForm): PublicForm {
     const { tenantId: _omitted, ...pub } = resolved;
     return pub;
+  }
+
+  async submit(
+    slug: string,
+    body: { answers?: Record<string, unknown> },
+    sourceIp: string | undefined,
+  ): Promise<{ submissionId: string }> {
+    const form = await this.resolvePublishedForm(slug);
+    const rawAnswers = body?.answers;
+    if (!rawAnswers || typeof rawAnswers !== "object" || Array.isArray(rawAnswers)) {
+      throw new BadRequestException({ message: "Validation failed", errors: ["answers object required"] });
+    }
+    const errors = validateAnswers(form.fields, rawAnswers);
+    if (errors.length > 0) {
+      throw new BadRequestException({ message: "Validation failed", errors });
+    }
+    const answers = rawAnswers as Record<string, string>;
+    const submittedAt = new Date();
+
+    return withTenant(this.pool, form.tenantId, async (db) => {
+      const [submission] = await db
+        .insert(submissions)
+        .values({ formId: form.id, tenantId: form.tenantId, answers, sourceIp, submittedAt })
+        .returning();
+
+      const activeEndpoints = await db
+        .select()
+        .from(endpoints)
+        .where(and(eq(endpoints.tenantId, form.tenantId), eq(endpoints.active, true)));
+
+      for (const endpoint of activeEndpoints) {
+        const deliveryId = randomUUID();
+        const eventId = randomUUID();
+        const payload: SubmissionReceivedEvent = {
+          eventId,
+          type: "submission.received",
+          attempt: 1,
+          tenantId: form.tenantId,
+          formId: form.id,
+          formTitle: form.title,
+          submissionId: submission.id,
+          endpointId: endpoint.id,
+          deliveryId,
+          answers,
+          submittedAt: submittedAt.toISOString(),
+        };
+        await db.insert(deliveries).values({
+          id: deliveryId,
+          tenantId: form.tenantId,
+          endpointId: endpoint.id,
+          submissionId: submission.id,
+          eventId,
+        });
+        await db.insert(outbox).values({
+          id: eventId,
+          tenantId: form.tenantId,
+          aggregateType: "delivery",
+          aggregateId: deliveryId,
+          eventType: "submission.received",
+          payload,
+        });
+      }
+      return { submissionId: submission.id };
+    });
   }
 }
