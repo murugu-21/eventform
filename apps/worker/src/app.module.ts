@@ -6,6 +6,8 @@ import { HealthController } from "./health.controller";
 import { DeliveryProcessor } from "./processor/delivery-processor.service";
 import { WebhookSender } from "./webhook/webhook-sender.service";
 import { KafkaConsumerService } from "./kafka/kafka-consumer.service";
+import { RetryScheduler } from "./scheduler/retry-scheduler.service";
+import { OutboxCleanup } from "./scheduler/outbox-cleanup.service";
 import { Pool } from "pg";
 
 @Module({
@@ -26,6 +28,16 @@ import { Pool } from "pg";
       provide: KafkaConsumerService,
       useFactory: (processor: DeliveryProcessor) => new KafkaConsumerService(processor),
       inject: [DeliveryProcessor],
+    },
+    {
+      provide: RetryScheduler,
+      useFactory: (pool: Pool) => new RetryScheduler(pool, loadConfig().retryPollMs, true),
+      inject: [WORKER_POOL],
+    },
+    {
+      provide: OutboxCleanup,
+      useFactory: (pool: Pool) => new OutboxCleanup(pool, loadConfig().outboxRetentionHours, true),
+      inject: [WORKER_POOL],
     },
   ],
 })
