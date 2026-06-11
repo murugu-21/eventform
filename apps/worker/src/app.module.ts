@@ -1,9 +1,26 @@
 import { Module } from "@nestjs/common";
-import { DbModule } from "./db.module";
+import { SecretCipher } from "@eventform/shared";
+import { loadConfig } from "./config";
+import { DbModule, SECRET_CIPHER, WORKER_POOL } from "./db.module";
 import { HealthController } from "./health.controller";
+import { DeliveryProcessor } from "./processor/delivery-processor.service";
+import { WebhookSender } from "./webhook/webhook-sender.service";
+import { Pool } from "pg";
 
 @Module({
   imports: [DbModule],
   controllers: [HealthController],
+  providers: [
+    {
+      provide: WebhookSender,
+      useFactory: (cipher: SecretCipher) => new WebhookSender(cipher, loadConfig().webhookTimeoutMs),
+      inject: [SECRET_CIPHER],
+    },
+    {
+      provide: DeliveryProcessor,
+      useFactory: (pool: Pool, sender: WebhookSender) => new DeliveryProcessor(pool, sender),
+      inject: [WORKER_POOL, WebhookSender],
+    },
+  ],
 })
 export class AppModule {}
