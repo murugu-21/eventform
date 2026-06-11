@@ -1,5 +1,5 @@
 {
-  "id": "ff667071-9328-443a-bc19-152ca9c450b6",
+  "id": "904a6eee-6f87-4e5f-8b07-73c7a50e34af",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -86,7 +86,51 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "deliveries_retry_poll_idx": {
+          "name": "deliveries_retry_poll_idx",
+          "columns": [
+            {
+              "expression": "next_retry_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "status = 'retrying'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "deliveries_tenant_list_idx": {
+          "name": "deliveries_tenant_list_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "deliveries_tenant_id_tenants_id_fk": {
           "name": "deliveries_tenant_id_tenants_id_fk",
@@ -189,7 +233,23 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "delivery_attempts_delivery_idx": {
+          "name": "delivery_attempts_delivery_idx",
+          "columns": [
+            {
+              "expression": "delivery_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "delivery_attempts_delivery_id_deliveries_id_fk": {
           "name": "delivery_attempts_delivery_id_deliveries_id_fk",
@@ -339,7 +399,23 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "form_fields_form_idx": {
+          "name": "form_fields_form_idx",
+          "columns": [
+            {
+              "expression": "form_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "form_fields_form_id_forms_id_fk": {
           "name": "form_fields_form_id_forms_id_fk",
@@ -498,7 +574,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "outbox_created_idx": {
+          "name": "outbox_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -575,7 +667,29 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "submissions_form_idx": {
+          "name": "submissions_form_idx",
+          "columns": [
+            {
+              "expression": "form_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "submitted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "submissions_form_id_forms_id_fk": {
           "name": "submissions_form_id_forms_id_fk",

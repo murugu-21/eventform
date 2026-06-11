@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -40,10 +42,12 @@ export const formFields = pgTable("form_fields", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   type: fieldType("type").notNull(),
   label: text("label").notNull(),
-  options: jsonb("options").$type<string[] | null>(),
+  options: jsonb("options").$type<string[]>(),
   required: boolean("required").notNull().default(false),
   position: integer("position").notNull(),
-});
+}, (t) => [
+  index("form_fields_form_idx").on(t.formId),
+]);
 
 export const submissions = pgTable("submissions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -52,7 +56,9 @@ export const submissions = pgTable("submissions", {
   answers: jsonb("answers").$type<Record<string, string>>().notNull(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
   sourceIp: text("source_ip"),
-});
+}, (t) => [
+  index("submissions_form_idx").on(t.formId, t.submittedAt),
+]);
 
 export const endpoints = pgTable("endpoints", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -73,7 +79,9 @@ export const outbox = pgTable("outbox", {
   eventType: text("event_type").notNull(),
   payload: jsonb("payload").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("outbox_created_idx").on(t.createdAt),
+]);
 
 /** Consumer idempotency ledger. Not tenant-scoped; worker-only. */
 export const processedEvents = pgTable("processed_events", {
@@ -94,7 +102,10 @@ export const deliveries = pgTable("deliveries", {
   responseCode: integer("response_code"),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("deliveries_retry_poll_idx").on(t.nextRetryAt).where(sql`status = 'retrying'`),
+  index("deliveries_tenant_list_idx").on(t.tenantId, t.status, t.createdAt),
+]);
 
 export const deliveryAttempts = pgTable("delivery_attempts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -107,4 +118,6 @@ export const deliveryAttempts = pgTable("delivery_attempts", {
   responseCode: integer("response_code"),
   error: text("error"),
   durationMs: integer("duration_ms"),
-});
+}, (t) => [
+  index("delivery_attempts_delivery_idx").on(t.deliveryId),
+]);
