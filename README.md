@@ -41,7 +41,7 @@ graph LR
 
     subgraph Worker["Worker (app_worker role)"]
         Consumer["Idempotent consumer\n(SKIP LOCKED)"]
-        Retry["Retry scheduler\n(exponential backoff)"]
+        Retry["Retry scheduler\n(escalating backoff: 5s, 30s)"]
     end
 
     subgraph Webhook["Receiver"]
@@ -84,7 +84,7 @@ so multiple worker replicas never race on the same row.
 |---|---|---|
 | **Transactional outbox** | Submission write and event emit are atomic — no dual-write, no missed events | [`apps/api/src/public/public.service.ts`](apps/api/src/public/public.service.ts) |
 | **CDC (Debezium)** | Outbox rows flow to Kafka via the Postgres WAL — zero polling, no extra DB load | [`infra/compose/connect/eventform-outbox.json`](infra/compose/connect/eventform-outbox.json) |
-| **Idempotent consumer** | Delivery is marked `delivered` before ACK; re-delivered messages are skipped | [`apps/worker/src/processor/delivery-processor.service.ts`](apps/worker/src/processor/delivery-processor.service.ts) |
+| **Idempotent consumer** | Each event id is claimed in a `processed_events` ledger inside the work transaction; re-delivered messages hit the conflict and are skipped | [`apps/worker/src/processor/delivery-processor.service.ts`](apps/worker/src/processor/delivery-processor.service.ts) |
 | **Row-level security** | Every query runs under a tenant-scoped transaction; no cross-tenant data leaks at the SQL layer | [`packages/db/migrations/0001_rls.sql`](packages/db/migrations/0001_rls.sql) |
 | **SKIP LOCKED scheduler** | Retry rows are claimed with `SELECT ... FOR UPDATE SKIP LOCKED` — safe to run N replicas | [`apps/worker/src/scheduler/retry-scheduler.service.ts`](apps/worker/src/scheduler/retry-scheduler.service.ts) |
 | **Manual retry (API)** | Operators can re-queue failed deliveries from the dashboard | [`apps/api/src/deliveries/deliveries.service.ts`](apps/api/src/deliveries/deliveries.service.ts) |

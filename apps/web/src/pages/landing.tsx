@@ -110,7 +110,7 @@ export default function LandingPage() {
         <div className="text-center">
           <h2 className="text-3xl font-bold mb-2">How it works</h2>
           <p className="text-muted-foreground max-w-lg text-sm">
-            Three steps from form to webhook, with guaranteed delivery via CDC.
+            Three steps from form to webhook, with at-least-once delivery via CDC.
           </p>
         </div>
 
@@ -118,7 +118,7 @@ export default function LandingPage() {
           <Step
             n={1}
             title="Build &amp; Publish"
-            body="Create a form with the drag-and-drop builder, add text or multiple-choice fields, then publish to get a shareable public link."
+            body="Create a form in the builder, add text or multiple-choice fields, reorder them, then publish to get a shareable public link."
           />
           <Step
             n={2}
@@ -164,25 +164,25 @@ export default function LandingPage() {
         {/* Key properties */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl w-full">
           <div className="rounded-lg border border-border bg-card p-5">
-            <h4 className="font-semibold text-sm mb-1">Exactly-once intent</h4>
+            <h4 className="font-semibold text-sm mb-1">Idempotent processing</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Submission and outbox row are written in a single Postgres transaction.
-              The worker deduplicates on Kafka offset.
+              The worker deduplicates on an event-id ledger, so redeliveries are safe.
             </p>
           </div>
           <div className="rounded-lg border border-border bg-card p-5">
             <h4 className="font-semibold text-sm mb-1">Auto-retry with backoff</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Failed deliveries are retried up to 5 times with exponential backoff.
-              Manual retry is available from the deliveries dashboard.
+              Failed deliveries are retried with escalating backoff (5s, then 30s),
+              up to 3 attempts. Manual retry is available from the deliveries dashboard.
             </p>
           </div>
           <div className="rounded-lg border border-border bg-card p-5">
             <h4 className="font-semibold text-sm mb-1">HMAC signatures</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Every webhook is signed with a per-endpoint{" "}
-              <code className="text-xs font-mono">whsec_</code> secret.
-              Rotate without downtime from the endpoints UI.
+              <code className="text-xs font-mono">whsec_</code> secret,
+              encrypted at rest with KMS. Reveal or rotate from the endpoints UI.
             </p>
           </div>
         </div>
