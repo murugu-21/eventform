@@ -37,7 +37,7 @@ jobs:
         run: pnpm build
 
       - name: Boot dev services (postgres, localstack, kafka, connect)
-        run: docker compose -f infra/compose/docker-compose.yml up -d --wait
+        run: pnpm db:up
         timeout-minutes: 5
 
       - name: Register Debezium connector
@@ -87,7 +87,7 @@ jobs:
         run: pnpm build
 
       - name: Boot dev services
-        run: docker compose -f infra/compose/docker-compose.yml up -d --wait
+        run: pnpm db:up
         timeout-minutes: 5
 
       - name: Register Debezium connector

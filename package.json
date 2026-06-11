@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "db:up": "docker compose -f infra/compose/docker-compose.yml up -d --wait",
+    "db:up": "infra/compose/ensure-dev-key-material.sh && docker compose -f infra/compose/docker-compose.yml up -d --wait",
     "db:down": "docker compose -f infra/compose/docker-compose.yml down",
     "db:migrate": "pnpm --filter @eventform/db migrate",
     "connect:register": "infra/compose/connect/register-connector.sh"

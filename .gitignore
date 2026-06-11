@@ -5,3 +5,4 @@ dist/
 coverage/
 .DS_Store
 test-results/
+infra/compose/localstack/dev-key-material.b64

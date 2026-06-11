@@ -212,7 +212,7 @@ Webhook HMAC secrets are never stored in plaintext.
   container on the EC2). LocalStack Community has no persistence, so a boot
   hook (`init/ready.d`) recreates the key with a fixed custom key id
   (`_custom_id_` tag) as `Origin=EXTERNAL` and re-imports **fixed key
-  material** (BYOK `ImportKeyMaterial` flow) from a file: checked-in dev
+  material** (BYOK `ImportKeyMaterial` flow) from a file: per-clone generated (gitignored) dev
   material locally; a once-generated, root-only file on the EC2 host in prod.
   Same key id + same material ⇒ old ciphertexts decrypt after every restart.
 - **Honest threat model (README talking point):** with LocalStack the
