@@ -7,6 +7,7 @@ import { AuthProvider, RequireAuth } from "@/lib/auth";
 import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
 import PublicFormPage from "@/pages/public-form";
+import NotFoundPage from "@/pages/not-found";
 import DashboardPage from "@/pages/dashboard";
 import FormBuilderPage from "@/pages/form-builder";
 import SubmissionsPage from "@/pages/submissions";
@@ -32,6 +33,9 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/f/:slug" element={<PublicFormPage />} />
+
+            {/* Catch-all */}
+            <Route path="*" element={<NotFoundPage />} />
 
             {/* Authenticated app shell */}
             <Route
