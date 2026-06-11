@@ -1665,3 +1665,26 @@ export class OutboxCleanup implements OnApplicationBootstrap, OnApplicationShutd
 - Manual full-loop transcript: submit → delivered; unreachable endpoint → 3 attempts → failed → manual retry → delivered. ("Even retries are events.")
 - Duplicate Kafka delivery sends exactly one webhook (idempotency test); a poison message is skipped, consumer stays live.
 - Phase 4 (frontend) needs no backend changes: every UI feature maps to an existing API.
+
+## Implementation notes (deviations)
+
+### Consumer CRASH listener
+Added a `crash` event listener on the KafkaJS consumer in `KafkaConsumerService`. On a fatal consumer crash, the service logs the error and calls `process.exit(1)` so a supervisor (docker `restart: unless-stopped`, systemd, PM2) can restart the process cleanly. This was surfaced during the Task 5/6 code review and is necessary for at-least-once guarantees — a silently-dead consumer would appear healthy while the worker stops delivering.
+
+### Final test counts
+- `packages/shared`: 28 tests
+- `packages/db`: 12 tests
+- `apps/api`: 54 tests
+- `apps/worker`: 22 tests (backoff 4, webhook-sender 5, delivery-processor 7, retry-scheduler 4, pipeline e2e 2)
+- **Total: 116 tests** (94 Phase 1+2 + 22 Phase 3)
+
+### Observed CDC latency
+End-to-end latency from `POST /f/:slug` (outbox insert committed) to webhook received at the local server was consistently **~1–2 seconds** in local dev (Kafka + Debezium + worker on same machine). This includes: Debezium poll interval (~500 ms default), Kafka produce, consumer fetch, DB idempotency claim, KMS decrypt (LocalStack), and HTTP POST.
+
+### Carried-forward Phase 5 items
+The following were noted during Phase 3 but deferred:
+
+1. **Dead-consumer /health coupling** — the worker's `/health` endpoint returns 200 regardless of consumer state. After a crash+restart cycle the endpoint is healthy again, but between crash and restart it is still healthy. Health should either reflect consumer liveness or simply rely on `process.exit(1)` + supervisor restart to handle it (the exit approach is already implemented).
+2. **Secret-cache eviction** — the `SecretCache` evicts entries after 5 minutes (TTL). There is no active eviction on endpoint secret rotation; the stale cached value will be used until TTL expiry. A `DELETE` cache hook on endpoint rotation would tighten this.
+3. **Dedicated Debezium replication role** — Debezium currently connects as the `eventform` superuser (which has `REPLICATION` privilege). A dedicated role with only `REPLICATION` + `SELECT` on `outbox` is the correct production posture.
+4. **Phase 5 list from Phase 2b plan** — all items from the 2b plan's Phase 5 carry-forward list remain open (CDK deployment, EC2 + managed Kafka, Cognito JWT validation, rate-limit tuning, etc.).
