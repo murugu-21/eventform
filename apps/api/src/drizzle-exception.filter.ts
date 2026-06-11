@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, Logger } from "@nestjs/common";
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from "@nestjs/common";
 import type { Response } from "express";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 
@@ -16,12 +16,35 @@ const CONFLICT_CODES: Record<string, string> = {
  * DrizzleQueryError.message embeds the SQL and params (which can include
  * KMS ciphertexts). This filter keeps that out of responses AND logs —
  * only the pg error code + constraint name are logged.
+ *
+ * @Catch() with no args catches everything so instanceof mismatches across
+ * ESM/CJS module boundaries cannot cause DrizzleQueryErrors to fall through
+ * to NestJS's default 500 handler.
  */
-@Catch(DrizzleQueryError)
+@Catch()
 export class DrizzleExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(DrizzleExceptionFilter.name);
 
-  catch(err: DrizzleQueryError, host: ArgumentsHost): void {
+  catch(err: unknown, host: ArgumentsHost): void {
+    // Pass HttpExceptions through to NestJS's default serialisation.
+    if (err instanceof HttpException) {
+      const res = host.switchToHttp().getResponse<Response>();
+      const status = err.getStatus();
+      res.status(status).json(err.getResponse());
+      return;
+    }
+    // Detect DrizzleQueryError by shape (handles instanceof mismatches across
+    // ESM/CJS module boundaries that can occur in the SWC/vitest transpile env).
+    if (err instanceof DrizzleQueryError || (err != null && typeof err === "object" && "query" in err && "params" in err)) {
+      this.handleDrizzle(err as DrizzleQueryError, host);
+      return;
+    }
+    // Unknown error → sanitised 500.
+    const res = host.switchToHttp().getResponse<Response>();
+    res.status(500).json({ statusCode: 500, message: "Internal server error" });
+  }
+
+  private handleDrizzle(err: DrizzleQueryError, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
     const req = host.switchToHttp().getRequest<{ url: string; method: string }>();
     const cause = (err.cause ?? {}) as PgError;
