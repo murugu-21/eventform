@@ -17,7 +17,7 @@ export function validateAnswers(
   }
 
   for (const field of fields) {
-    const value = answers[field.label];
+    const value = Object.hasOwn(answers, field.label) ? answers[field.label] : undefined;
     if (value === undefined || value === "") {
       if (field.required) {
         errors.push(`missing required field: ${field.label}`);

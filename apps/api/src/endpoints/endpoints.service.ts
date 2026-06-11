@@ -1,6 +1,6 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { endpoints, withTenant } from "@eventform/db";
 import { generateEndpointSecret, SecretCipher } from "@eventform/shared";
 import { API_POOL, SECRET_CIPHER } from "../db/db.module";
@@ -24,6 +24,17 @@ export class EndpointsService {
     const secret = generateEndpointSecret();
     const secretCiphertext = await this.cipher.encrypt(secret, tenantId);
     const row = await withTenant(this.pool, tenantId, async (db) => {
+      // Cap endpoints at 20 per tenant.
+      // NOTE: a loop-of-20-creates e2e would be slow; the cap is documented here
+      // and verified by code review. A future unit-ish e2e can monkeypatch the
+      // count query if needed.
+      const [{ value: existing }] = await db
+        .select({ value: count() })
+        .from(endpoints)
+        .where(eq(endpoints.tenantId, tenantId));
+      if (existing >= 20) {
+        throw new ConflictException("endpoint limit reached (20)");
+      }
       const [created] = await db
         .insert(endpoints)
         .values({ tenantId, name: dto.name, url: dto.url, secretCiphertext })

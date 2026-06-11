@@ -37,25 +37,27 @@ describe("public form read", () => {
 describe("public form submit", () => {
   let t: TestContext;
   const sub = `pub-submit-${randomUUID()}`;
+  let lonelySub: string;
 
   beforeAll(async () => {
     t = await createTestApp();
   });
 
   afterAll(async () => {
+    const subsToClean = lonelySub ? [sub, lonelySub] : [sub];
     await t.adminPool.query(
-      `DELETE FROM outbox WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = $1)`,
-      [sub],
+      `DELETE FROM outbox WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = ANY($1))`,
+      [subsToClean],
     );
     await t.adminPool.query(
-      `DELETE FROM deliveries WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = $1)`,
-      [sub],
+      `DELETE FROM deliveries WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = ANY($1))`,
+      [subsToClean],
     );
     await t.adminPool.query(
-      `DELETE FROM submissions WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = $1)`,
-      [sub],
+      `DELETE FROM submissions WHERE tenant_id IN (SELECT id FROM tenants WHERE cognito_sub = ANY($1))`,
+      [subsToClean],
     );
-    await t.cleanupSubs([sub]);
+    await t.cleanupSubs(subsToClean);
     await t.close();
   });
 
@@ -108,14 +110,13 @@ describe("public form submit", () => {
   });
 
   it("saves a submission with zero deliveries when no active endpoints exist", async () => {
-    const lonelySub = `pub-lonely-${randomUUID()}`;
+    lonelySub = `pub-lonely-${randomUUID()}`;
     const form = await publishForm(t, lonelySub, "No endpoints");
     const res = await t.http().post(`/f/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
     const deliveries = await t.adminPool.query(
       "SELECT count(*)::int AS n FROM deliveries WHERE submission_id = $1", [res.body.submissionId]);
     expect(deliveries.rows[0].n).toBe(0);
-    await t.adminPool.query("DELETE FROM submissions WHERE id = $1", [res.body.submissionId]);
-    await t.cleanupSubs([lonelySub]);
+    // lonelySub cleanup deferred to afterAll so failed runs don't leak tenants
   });
 
   it("validates answers: missing required, unknown key, bad option, non-string", async () => {
