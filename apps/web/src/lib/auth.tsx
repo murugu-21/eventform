@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Navigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { getDevSub, setDevSub } from "./api";
 import { generateVerifier, challengeFor, authorizeUrl } from "./pkce";
 import { clearTokens, getAccessToken } from "@/pages/auth-callback";
@@ -26,6 +27,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   // In dev mode, sub comes from localStorage dev key.
   // In cognito mode, sub is derived from the stored access token presence
   // (we treat non-null token as signed-in, sub is not needed for routing).
@@ -57,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function signOut() {
+    // Drop every cached query — staleTime would otherwise serve the previous
+    // user's data (tenant name, forms, deliveries) to the next sign-in.
+    queryClient.clear();
     if (AUTH_MODE === "cognito") {
       clearTokens();
       setSub(null);
