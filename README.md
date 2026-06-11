@@ -3,12 +3,9 @@
 Multi-tenant form builder with webhook delivery, built on a transactional
 outbox → Debezium CDC → Kafka → idempotent consumer pipeline.
 
-> 🚧 Work in progress. Full architecture tour coming with the production
-> deployment phase.
-
 ## Stack
 
-React + shadcn/ui · NestJS · Postgres (RLS) · Drizzle · Debezium + Kafka ·
+React 19 + shadcn/ui · NestJS · PostgreSQL 16 · Drizzle ORM · Debezium + Kafka ·
 LocalStack KMS · AWS CDK + Cognito · docker-compose on EC2
 
 ## Local development
@@ -19,7 +16,7 @@ Prereqs: Node ≥ 22, pnpm, Docker.
 pnpm install
 pnpm build        # compile workspace packages (dist/ consumed by dependants)
 cp .env.example .env
-pnpm db:up        # postgres 16 (wal_level=logical) + localstack kms
+pnpm db:up        # postgres + localstack + kafka + kafka-connect
 pnpm db:migrate   # tables, roles, RLS policies
 pnpm test         # unit + KMS/RLS integration tests
 ```
@@ -30,34 +27,65 @@ pnpm test         # unit + KMS/RLS integration tests
 - `packages/db` — Drizzle schema, migrations, tenant-scoped tx helper
 - `apps/api` — NestJS REST API — auth, forms, endpoints, public submission, deliveries
 - `apps/worker` — Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
-- `apps/web` — React frontend *(phase 4)*
+- `apps/web` — React 19 + shadcn/ui SPA — form builder, dashboard, deliveries dashboard, Playwright smoke
 - `infra` — docker-compose + AWS CDK *(phase 5)*
 
-## Run the pipeline locally
+## Run the full demo locally
 
-After completing the base setup in **Local development** above:
+**Prerequisites:** Node ≥ 22, pnpm, Docker.
+
+### 1. Start the compose stack
 
 ```bash
-pnpm build
-pnpm db:up        # starts postgres + localstack + kafka + kafka-connect
-pnpm db:migrate
-pnpm connect:register   # idempotent PUT of the Debezium outbox connector
+pnpm db:up          # postgres + localstack + kafka + kafka-connect (waits for healthy)
+pnpm db:migrate     # apply all Drizzle migrations
+pnpm connect:register   # register (or update) the Debezium outbox connector
 ```
 
-Then in two separate terminals:
+Verify the connector is RUNNING:
 
 ```bash
-# terminal 1
+curl http://localhost:8083/connectors/eventform-outbox/status
+# → {"connector":{"state":"RUNNING",...},"tasks":[{"state":"RUNNING",...}]}
+```
+
+### 2. Build and start the API + worker
+
+```bash
+pnpm build   # compiles all workspace packages
+
+# Terminal 1 — API
 PORT=3001 node apps/api/dist/main.js
 
-# terminal 2
+# Terminal 2 — Worker
 node apps/worker/dist/main.js
 ```
 
-Dev-mode auth uses a bearer token of the form `Bearer dev_<sub>-<anything>` — the
-sub prefix is used as a stable tenant identifier (e.g. `Bearer dev_alice-1`).
-Submit a form anonymously via `POST /f/<slug>` and the worker will deliver a
-HMAC-signed webhook to every active endpoint within a few seconds.
+### 3. Start the web dev server
+
+```bash
+pnpm --filter @eventform/web dev
+# → http://localhost:5173
+```
+
+### 4. Sign in and try it
+
+Navigate to [http://localhost:5173](http://localhost:5173) and click **Sign in**.
+Enter **any handle** (e.g. `alice`) — dev mode stores the sub in localStorage and
+sends `Bearer dev_<handle>` to the API (no password, no Cognito in Phase 4).
+
+**Demo flow:**
+1. **Dashboard** → New form → fill title → Create
+2. **Form builder** → Add field (type: Text, label: "Name") → Save fields → Publish
+3. Copy the public `/f/<slug>` link
+4. **Endpoints** → New endpoint → point at any URL that accepts POST (e.g. a
+   [webhook.site](https://webhook.site) URL or a local echo server) → store the secret
+5. Open the public form link in a private window → fill in → Submit
+6. **Deliveries** — the row should flip from `pending` → `delivered` within ~5 seconds
+   (auto-polls every 5s); failed deliveries can be retried manually
+
+Dev-mode auth uses bearer tokens of the form `Bearer dev_<sub>` — Phase 5 replaces
+this with Cognito hosted-UI tokens without touching any page code.
 
 ## Design docs
 
@@ -66,3 +94,4 @@ HMAC-signed webhook to every active endpoint within a few seconds.
 - [Phase 2a plan](docs/superpowers/plans/2026-06-11-eventform-phase-2a-api-core.md)
 - [Phase 2b plan](docs/superpowers/plans/2026-06-11-eventform-phase-2b-public-outbox.md)
 - [Phase 3 plan](docs/superpowers/plans/2026-06-11-eventform-phase-3-pipeline.md)
+- [Phase 4 plan](docs/superpowers/plans/2026-06-11-eventform-phase-4-frontend.md)

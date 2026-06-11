@@ -393,3 +393,61 @@ test("full loop: sign in → build → publish → submit → delivery delivered
 - Playwright smoke passes against the live stack (sign-in → build → publish → anonymous submit → delivered visible in the polling deliveries UI).
 - Every spec §Frontend page exists and is wired to the real API; failed-delivery retry works from the UI.
 - The dev-auth seam is isolated in `src/lib/auth.tsx` + `api.ts` (Phase 5 swaps providers without touching pages).
+
+---
+
+## Implementation notes (deviations)
+
+### shadcn/ui — base-nova + manual component relocation
+
+The shadcn CLI (`pnpm dlx shadcn@latest init -d`) was used with the `base-nova` style
+(the default at shadcn 4.x). Generated UI components were placed in
+`src/components/ui/` as expected. `DialogClose` does not accept an `asChild` prop in
+the version vendored (base-ui backed); it instead takes a `render` prop — all dialog
+cancel/close buttons use `render={<Button ... />}` rather than `asChild`.
+
+### Vitest config split
+
+A separate `vitest.config.ts` was not needed; vitest is configured inline in
+`vite.config.ts`. The `test` environment uses the default node (no jsdom) since the
+API client tests mock `global.fetch` and `localStorage` directly.
+
+### Playwright — sink URL deviation
+
+The plan suggested `http://localhost:3001/health` as the sink URL. That endpoint only
+supports GET (POST returns 404), so the worker's POST delivery fails. Actual
+implementation uses a minimal in-process echo server on `127.0.0.1:9099` (started
+before the test run) that accepts any method and returns `200 {"ok":true}`. This is
+noted in the smoke spec header under prerequisites.
+
+### Playwright — test timeout
+
+The default Playwright timeout of 30 s was too tight to cover both test execution and
+the 30 s delivery polling assertion. `timeout: 90_000` was added to
+`playwright.config.ts`.
+
+### Selector adaptations
+
+- **Label input in field rows**: The `<Input aria-label="label">` attribute on each
+  field row is matched via `.last()` (the most recently added row).
+- **Endpoint create dialog inputs**: Used `#ep-name` / `#ep-url` id selectors (the
+  explicit `id` attributes in `CreateEndpointDialog`).
+- **Secret dialog close**: Required checking the confirmation checkbox (`getByRole("checkbox").check()`)
+  before `getByTestId("secret-close")` becomes enabled.
+- **Deliveries "delivered" text**: `getByText("delivered")` matches the lowercase text
+  rendered by `StatusBadge` inside the Badge component.
+
+### data-testid attributes added
+
+The following `data-testid` attributes were already present from earlier tasks (no
+additions needed in Task 8):
+- `data-testid="public-link"` — `CopyableUrl` in `form-builder.tsx`
+- `data-testid="secret-value"` — `SecretDialog` in `secret-dialog.tsx`
+- `data-testid="secret-close"` — close button in `SecretDialog`
+
+### Final test counts
+
+- Web unit tests: 5 (api client)
+- Playwright smoke: 1 test, passes in ~7 s (full loop including CDC + delivery)
+- API tests: 54
+- Worker/pipeline tests: 62
