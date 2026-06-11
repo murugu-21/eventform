@@ -65,6 +65,19 @@ else
   warn "      Losing it means all encrypted endpoint secrets are irrecoverable."
 fi
 
+# Guard: the dev key material committed to this repo is PUBLIC. Refuse to run
+# production with it — that would encrypt real secrets under known key material.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_MATERIAL="$SCRIPT_DIR/../compose/localstack/dev-key-material.b64"
+if [[ -f "$DEV_MATERIAL" ]] && command -v shasum >/dev/null 2>&1; then
+  if [[ "$(shasum -a 256 < "$KMS_KEY_MATERIAL_FILE")" == "$(shasum -a 256 < "$DEV_MATERIAL")" ]]; then
+    error "KMS_KEY_MATERIAL_FILE ($KMS_KEY_MATERIAL_FILE) contains the COMMITTED dev key material."
+    error "That file is public on GitHub — production must use freshly generated material."
+    error "Delete the file and re-run this script to generate a real one."
+    exit 1
+  fi
+fi
+
 # ── (b) Rotate app_api and app_worker passwords ───────────────────────────────
 # Determine compose file location (look next to this script → infra/compose/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
