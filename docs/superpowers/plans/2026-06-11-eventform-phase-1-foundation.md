@@ -1491,6 +1491,45 @@ git commit -m "docs: add development quickstart to README"
 
 ---
 
+## Implementation notes (deviations from the plan as written)
+
+Recorded after execution — the code is the source of truth:
+
+- **LocalStack image pinned to `localstack/localstack:3`** — the `latest` tag now
+  requires a Pro license (exits code 55). Healthcheck also hardened to assert
+  `KeyState = Enabled` (not just key presence), ports bound to 127.0.0.1, both
+  services get `restart: unless-stopped`, host material path parameterized via
+  `KMS_KEY_MATERIAL_FILE`, and the boot hook handles Disabled/PendingDeletion
+  key states explicitly.
+- **HMAC verify hardened**: timestamp pinned to `/^\d{1,12}$/` (a decimal
+  timestamp permitted a signature boundary-shift), empty secrets throw. 16
+  hmac tests (plan said 9 — miscount; base was 8).
+- **Event schema is `.strict()`** — producer and consumer deploy together, so
+  unknown keys fail loudly. 7 event tests.
+- **SecretCipher** re-exports `InvalidCiphertextException`; stub LocalStack
+  credentials are injected only when an endpoint override is set and no real
+  AWS creds exist. 5 kms tests (incl. tamper rejection). Shared total: 28.
+- **Schema gained 6 secondary indexes** in migration 0000 (regenerated as
+  `0000_rainy_lilith.sql`): partial `deliveries_retry_poll_idx`
+  (next_retry_at WHERE status='retrying'), `deliveries_tenant_list_idx`,
+  `submissions_form_idx`, `form_fields_form_idx`,
+  `delivery_attempts_delivery_idx`, `outbox_created_idx`.
+- **RLS policies use `NULLIF(current_setting('app.tenant_id', true), '')::uuid`**
+  — a committed transaction-local set_config leaves an empty string (not NULL)
+  on the pooled session; bare `::uuid` would make the anonymous public-read
+  path error on reused connections. Also: `REVOKE ALL ON processed_events
+  FROM app_api` (worker-only ledger).
+- **withTenant releases poisoned clients with the error** (`client.release(err)`)
+  when ROLLBACK fails, so pg-pool destroys instead of pooling a mid-transaction
+  connection. The WITH CHECK rls test asserts on `DrizzleQueryError.cause`
+  (drizzle wraps pg errors). db total: 10 tests (4 client + 6 rls, incl. a
+  policy-parity metadata test).
+- **esbuild build approval** lives in root package.json
+  (`pnpm.onlyBuiltDependencies`), not `.npmrc` (`approve-builds=` is not a real
+  pnpm setting).
+- **Phase 5 TODO carried forward**: `REVOKE CREATE ON SCHEMA public FROM PUBLIC`
+  in the prod bootstrap; rotate role passwords; generate prod KMS material file.
+
 ## Done criteria for Phase 1
 
 - `pnpm db:up && pnpm db:migrate && pnpm test` passes from a clean checkout.
