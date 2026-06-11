@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { submissionReceivedSchema } from "../src/events";
 
 const VALID = {
@@ -25,20 +26,32 @@ describe("submissionReceivedSchema", () => {
   it("rejects a wrong type literal", () => {
     expect(() =>
       submissionReceivedSchema.parse({ ...VALID, type: "submission.deleted" }),
-    ).toThrow();
+    ).toThrow(z.ZodError);
   });
 
   it("rejects attempt 0", () => {
-    expect(() => submissionReceivedSchema.parse({ ...VALID, attempt: 0 })).toThrow();
+    expect(() => submissionReceivedSchema.parse({ ...VALID, attempt: 0 })).toThrow(z.ZodError);
   });
 
   it("rejects a non-uuid eventId", () => {
-    expect(() => submissionReceivedSchema.parse({ ...VALID, eventId: "nope" })).toThrow();
+    expect(() => submissionReceivedSchema.parse({ ...VALID, eventId: "nope" })).toThrow(z.ZodError);
   });
 
   it("rejects non-string answer values", () => {
     expect(() =>
       submissionReceivedSchema.parse({ ...VALID, answers: { q: 42 } }),
-    ).toThrow();
+    ).toThrow(z.ZodError);
+  });
+
+  it("rejects unknown extra keys (strict contract)", () => {
+    expect(() =>
+      submissionReceivedSchema.parse({ ...VALID, extra: "nope" }),
+    ).toThrow(z.ZodError);
+  });
+
+  it("rejects non-UTC submittedAt offsets", () => {
+    expect(() =>
+      submissionReceivedSchema.parse({ ...VALID, submittedAt: "2026-06-11T10:00:00+05:30" }),
+    ).toThrow(z.ZodError);
   });
 });
