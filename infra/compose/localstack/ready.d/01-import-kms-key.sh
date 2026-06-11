@@ -3,13 +3,14 @@ set -euo pipefail
 
 python3 - <<'PYEOF'
 import base64
+import os
 import boto3
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 ALIAS = "alias/eventform-endpoint-secrets"
 CUSTOM_KEY_ID = "11111111-2222-4333-8444-555555555555"
-MATERIAL_PATH = "/etc/eventform/kms-key-material.b64"
+MATERIAL_PATH = os.environ.get("KMS_KEY_MATERIAL_PATH", "/etc/eventform/kms-key-material.b64")
 
 kms = boto3.client(
     "kms",
@@ -21,18 +22,34 @@ kms = boto3.client(
 
 try:
     meta = kms.describe_key(KeyId=ALIAS)["KeyMetadata"]
-    if meta["KeyState"] == "Enabled":
+    key_state = meta["KeyState"]
+    key_id = meta["KeyId"]
+    if key_state == "Enabled":
         print("eventform KMS key already enabled, skipping import")
         raise SystemExit(0)
-    key_id = meta["KeyId"]
+    elif key_state == "Disabled":
+        kms.enable_key(KeyId=key_id)
+        print(f"re-enabled disabled key {key_id}")
+        raise SystemExit(0)
+    elif key_state == "PendingDeletion":
+        raise SystemExit(
+            f"ERROR: key {key_id} is in PendingDeletion state. "
+            "Cancel deletion via 'awslocal kms cancel-key-deletion --key-id "
+            f"{key_id}' or remove the key and restart LocalStack."
+        )
+    # PendingImport: fall through to import step
 except kms.exceptions.NotFoundException:
     key = kms.create_key(
         Description="eventform endpoint HMAC secrets",
         Origin="EXTERNAL",
+        # _custom_id_ is a LocalStack extension: fixed key id so ciphertexts stay valid across restarts
         Tags=[{"TagKey": "_custom_id_", "TagValue": CUSTOM_KEY_ID}],
     )
     key_id = key["KeyMetadata"]["KeyId"]
-    kms.create_alias(AliasName=ALIAS, TargetKeyId=key_id)
+    try:
+        kms.create_alias(AliasName=ALIAS, TargetKeyId=key_id)
+    except kms.exceptions.AlreadyExistsException:
+        pass
 
 with open(MATERIAL_PATH) as f:
     material = base64.b64decode(f.read().strip())
