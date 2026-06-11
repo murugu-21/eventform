@@ -48,3 +48,21 @@ export async function createTestApp(): Promise<TestContext> {
     },
   };
 }
+
+const PUBLISH_FIELDS = {
+  fields: [
+    { type: "text", label: "Your name", required: true },
+    { type: "multiple_choice", label: "Rating", options: ["Good", "Bad"], required: false },
+  ],
+};
+
+export async function publishForm(
+  t: TestContext,
+  sub: string,
+  title = "Public form",
+): Promise<{ id: string; publicSlug: string }> {
+  const form = await t.http().post("/forms").set(t.authed(sub)).send({ title }).expect(201);
+  await t.http().put(`/forms/${form.body.id}/fields`).set(t.authed(sub)).send(PUBLISH_FIELDS).expect(200);
+  await t.http().post(`/forms/${form.body.id}/publish`).set(t.authed(sub)).expect(201);
+  return form.body;
+}
