@@ -1,5 +1,6 @@
 export interface ApiConfig {
   port: number;
+  corsOrigins: string[];
   databaseUrlApi: string;
   databaseUrlAdmin: string;
   authMode: "dev" | "cognito";
@@ -14,6 +15,7 @@ export interface ApiConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     port: Number(env.PORT ?? 3001),
+    corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(","),
     databaseUrlApi:
       env.DATABASE_URL_API ?? "postgres://app_api:app_api_dev@localhost:5432/eventform",
     databaseUrlAdmin:
