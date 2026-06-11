@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Build & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10.4.1"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Boot dev services (postgres, localstack, kafka, connect)
+        run: docker compose -f infra/compose/docker-compose.yml up -d --wait
+        timeout-minutes: 5
+
+      - name: Register Debezium connector
+        run: pnpm connect:register
+
+      - name: Run all tests
+        run: pnpm test
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/test-results/**
+            **/junit*.xml
+            **/vitest-*.xml
+          retention-days: 7
+
+  smoke:
+    name: Playwright Smoke (non-blocking)
+    runs-on: ubuntu-latest
+    # This job intentionally continues-on-error while the e2e setup is being
+    # stabilized. Promote to a required check once the full prod-mode boot
+    # (api + worker from dist + caddy) is wired up in CI.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "10.4.1"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Boot dev services
+        run: docker compose -f infra/compose/docker-compose.yml up -d --wait
+        timeout-minutes: 5
+
+      - name: Register Debezium connector
+        run: pnpm connect:register
+
+      - name: Start API in background
+        run: |
+          pnpm --filter @eventform/api start &
+          echo "API_PID=$!" >> "$GITHUB_ENV"
+        env:
+          PORT: "3001"
+          DATABASE_URL_API: postgres://eventform:eventform@localhost:5432/eventform
+          DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
+          AUTH_MODE: dev
+          CORS_ORIGINS: "http://localhost:5173"
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          KMS_KEY_ID: alias/eventform-endpoint-secrets
+          TRUST_PROXY: "0"
+
+      - name: Start Worker in background
+        run: |
+          pnpm --filter @eventform/worker start &
+          echo "WORKER_PID=$!" >> "$GITHUB_ENV"
+        env:
+          WORKER_PORT: "3002"
+          DATABASE_URL_WORKER: postgres://eventform:eventform@localhost:5432/eventform
+          DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
+          KAFKA_BROKERS: localhost:29092
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          KMS_KEY_ID: alias/eventform-endpoint-secrets
+
+      - name: Wait for API to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:3001/health > /dev/null 2>&1; then
+              echo "API ready"
+              break
+            fi
+            echo "waiting for API... ($i/30)"
+            sleep 2
+          done
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @eventform/web exec playwright install chromium --with-deps
+
+      - name: Run Playwright smoke tests
+        run: pnpm --filter @eventform/web exec playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

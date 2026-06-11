@@ -1,0 +1,143 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/eventform
+
+jobs:
+  build-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (tag + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-api
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & Push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-api:latest
+            ${{ env.IMAGE_PREFIX }}-api:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-worker:latest
+            ${{ env.IMAGE_PREFIX }}-worker:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push Caddy image
+        # VITE_* vars are baked into the image at build time; read from repository Variables
+        # (Settings → Secrets and variables → Actions → Variables tab).
+        # NOTE: these are not sensitive — they are public OAuth client config baked into the SPA.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/caddy/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-caddy:latest
+            ${{ env.IMAGE_PREFIX }}-caddy:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL }}
+            VITE_AUTH_MODE=${{ vars.VITE_AUTH_MODE }}
+            VITE_COGNITO_DOMAIN=${{ vars.VITE_COGNITO_DOMAIN }}
+            VITE_COGNITO_CLIENT_ID=${{ vars.VITE_COGNITO_CLIENT_ID }}
+            VITE_REDIRECT_URI=${{ vars.VITE_REDIRECT_URI }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push Migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/db/Dockerfile.migrate
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-migrate:latest
+            ${{ env.IMAGE_PREFIX }}-migrate:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-vps:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: build-push
+    # GitHub does not allow `if: secrets.VPS_HOST != ''` directly because secrets are not
+    # available in `if` expressions. Instead we use an env indirection: the secret is mapped
+    # to an env var (empty string if not set), and the condition checks the env var.
+    # Concretely: if VPS_HOST is not configured the step posts a workflow notice and exits
+    # gracefully rather than failing the run.
+    environment: production
+    env:
+      VPS_HOST_CONFIGURED: ${{ secrets.VPS_HOST != '' && 'yes' || '' }}
+
+    steps:
+      - name: Check VPS secrets are configured
+        id: gate
+        run: |
+          if [ -z "$VPS_HOST_CONFIGURED" ]; then
+            echo "::notice title=Deploy skipped::VPS_HOST secret is not configured. " \
+              "Add VPS_HOST, VPS_USER, and VPS_SSH_KEY to the 'production' environment to enable deployments."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.gate.outputs.skip == 'false'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/eventform
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            echo "Deployed image tag: ${{ needs.build-push.outputs.image-tag }}"
