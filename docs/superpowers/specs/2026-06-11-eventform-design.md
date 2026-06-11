@@ -65,6 +65,103 @@ eventform/
 
 All tables carry `tenant_id` and an RLS policy unless noted.
 
+### ER diagram
+
+```mermaid
+erDiagram
+    tenants ||--o{ forms : owns
+    tenants ||--o{ endpoints : owns
+    forms ||--o{ form_fields : has
+    forms ||--o{ submissions : receives
+    endpoints ||--o{ deliveries : "delivers to"
+    submissions ||--o{ deliveries : "fans out to"
+    deliveries ||--o{ delivery_attempts : records
+
+    tenants {
+        uuid id PK
+        text name
+        text cognito_sub UK
+        timestamptz created_at
+    }
+    forms {
+        uuid id PK
+        uuid tenant_id FK
+        text title
+        form_status status "draft | published"
+        text public_slug UK
+        timestamptz created_at
+    }
+    form_fields {
+        uuid id PK
+        uuid form_id FK
+        uuid tenant_id FK
+        field_type type "text | multiple_choice"
+        text label
+        jsonb options "string[] for multiple_choice"
+        boolean required
+        integer position
+    }
+    submissions {
+        uuid id PK
+        uuid form_id FK
+        uuid tenant_id FK
+        jsonb answers "label -> value"
+        timestamptz submitted_at
+        text source_ip
+    }
+    endpoints {
+        uuid id PK
+        uuid tenant_id FK
+        text name
+        text url
+        text secret "HMAC key"
+        boolean active
+        timestamptz created_at
+    }
+    deliveries {
+        uuid id PK
+        uuid tenant_id FK
+        uuid endpoint_id FK
+        uuid submission_id FK
+        uuid event_id "latest outbox event"
+        delivery_status status "pending | delivered | retrying | failed"
+        integer attempt_count
+        timestamptz next_retry_at
+        text last_error
+        integer response_code
+        timestamptz delivered_at
+        timestamptz created_at
+    }
+    delivery_attempts {
+        uuid id PK
+        uuid delivery_id FK
+        uuid tenant_id
+        integer attempt_no
+        timestamptz requested_at
+        integer response_code
+        text error
+        integer duration_ms
+    }
+    outbox {
+        uuid id PK "= event id"
+        uuid tenant_id
+        text aggregate_type "delivery"
+        uuid aggregate_id "delivery id (Kafka key)"
+        text event_type "submission.received"
+        jsonb payload
+        timestamptz created_at
+    }
+    processed_events {
+        uuid event_id PK
+        timestamptz processed_at
+    }
+```
+
+`outbox` and `processed_events` stand apart deliberately: `outbox` rows are
+transient envelopes captured by Debezium (no FKs so cleanup never contends with
+domain rows), and `processed_events` is the consumer's idempotency ledger keyed
+by event id alone.
+
 ```
 tenants           id, name, cognito_sub (unique), created_at        — no RLS (lookup table)
 forms             id, tenant_id, title, status(draft|published), public_slug (unique), created_at
