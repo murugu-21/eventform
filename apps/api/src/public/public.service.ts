@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
 import { and, eq } from "drizzle-orm";
 import { deliveries, endpoints, outbox, submissions, withTenant } from "@eventform/db";
 import type { SubmissionReceivedEvent } from "@eventform/shared";
 import { API_POOL } from "../db/db.module";
-import { validateAnswers } from "./answers";
 
 export interface PublicField {
   id: string;
@@ -60,21 +59,16 @@ export class PublicService {
     return pub;
   }
 
+  /**
+   * Pure persistence: input validation (400s) happens upstream in the zod
+   * pipe + AnswersValidationInterceptor. This method only writes the atomic
+   * submission + deliveries + outbox set for an already-validated form.
+   */
   async submit(
-    slug: string,
-    body: { answers?: Record<string, unknown> },
+    form: ResolvedForm,
+    answers: Record<string, string>,
     sourceIp: string | undefined,
   ): Promise<{ submissionId: string }> {
-    const form = await this.resolvePublishedForm(slug);
-    const rawAnswers = body?.answers;
-    if (!rawAnswers || typeof rawAnswers !== "object" || Array.isArray(rawAnswers)) {
-      throw new BadRequestException({ message: "Validation failed", errors: ["answers object required"] });
-    }
-    const errors = validateAnswers(form.fields, rawAnswers);
-    if (errors.length > 0) {
-      throw new BadRequestException({ message: "Validation failed", errors });
-    }
-    const answers = rawAnswers as Record<string, string>;
     const submittedAt = new Date();
 
     return withTenant(this.pool, form.tenantId, async (db) => {

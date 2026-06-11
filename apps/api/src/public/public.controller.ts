@@ -1,8 +1,23 @@
-import { Body, Controller, Get, HttpCode, Ip, Param, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Ip,
+  Param,
+  Post,
+  UseInterceptors,
+} from "@nestjs/common";
 import { Throttle, seconds } from "@nestjs/throttler";
 import { Public } from "../auth/auth.guard";
 import { loadConfig } from "../config";
-import { PublicService } from "./public.service";
+import { ZodValidationPipe } from "../zod.pipe";
+import {
+  AnswersValidationInterceptor,
+  ValidatedForm,
+} from "./answers-validation.interceptor";
+import { SubmitBodyDto, submitBodySchema } from "./public.schemas";
+import { PublicService, ResolvedForm } from "./public.service";
 
 @Public()
 @Controller("f")
@@ -22,11 +37,12 @@ export class PublicController {
       limit: loadConfig().publicSubmitLimit,
     },
   })
+  @UseInterceptors(AnswersValidationInterceptor)
   submit(
-    @Param("slug") slug: string,
-    @Body() body: { answers?: Record<string, unknown> },
+    @ValidatedForm() form: ResolvedForm,
+    @Body(new ZodValidationPipe(submitBodySchema)) body: SubmitBodyDto,
     @Ip() ip: string,
   ) {
-    return this.service.submit(slug, body, ip);
+    return this.service.submit(form, body.answers, ip);
   }
 }
