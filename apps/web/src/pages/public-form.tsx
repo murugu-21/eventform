@@ -16,7 +16,6 @@ function FormNotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="max-w-md w-full p-8 flex flex-col items-center gap-4 text-center">
-        <div className="text-5xl">🔍</div>
         <h1 className="text-2xl font-bold">Form not found</h1>
         <p className="text-muted-foreground text-sm">
           This form doesn't exist or is no longer available. Check the link and try again.
