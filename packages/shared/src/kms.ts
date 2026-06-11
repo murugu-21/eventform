@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { DecryptCommand, EncryptCommand, KMSClient } from "@aws-sdk/client-kms";
 
+export { InvalidCiphertextException } from "@aws-sdk/client-kms";
+
 /** Webhook signing secret: whsec_ + 48 hex chars (24 random bytes). */
 export function generateEndpointSecret(): string {
   return `whsec_${randomBytes(24).toString("hex")}`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SecretCipher, generateEndpointSecret } from "../src/kms";
+import { InvalidCiphertextException, SecretCipher, generateEndpointSecret } from "../src/kms";
 
 const cipher = new SecretCipher({
   keyId: process.env.KMS_KEY_ID ?? "alias/eventform-endpoint-secrets",
@@ -31,6 +31,15 @@ describe("SecretCipher", () => {
 
   it("fails to decrypt under a different tenant (encryption context)", async () => {
     const ciphertext = await cipher.encrypt(generateEndpointSecret(), TENANT_A);
-    await expect(cipher.decrypt(ciphertext, TENANT_B)).rejects.toThrow();
+    await expect(cipher.decrypt(ciphertext, TENANT_B)).rejects.toThrow(InvalidCiphertextException);
+  });
+
+  it("rejects a tampered ciphertext", async () => {
+    const ciphertext = await cipher.encrypt(generateEndpointSecret(), TENANT_A);
+    const raw = Buffer.from(ciphertext, "base64");
+    raw[Math.floor(raw.length / 2)] ^= 0xff;
+    await expect(
+      cipher.decrypt(raw.toString("base64"), TENANT_A),
+    ).rejects.toThrow(InvalidCiphertextException);
   });
 });
