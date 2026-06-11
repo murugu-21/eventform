@@ -1,0 +1,110 @@
+# Local prod smoke-test override.
+# Disables TLS (auto_https off), exposes:
+#   :8080 → Caddy serving the SPA (VITE_AUTH_MODE=dev, VITE_API_URL=http://localhost:8081)
+#   :8081 → API directly (dev auth mode, no Caddy proxy needed locally)
+#   :15432 → postgres (for running migrations + bootstrap)
+#
+# Usage:
+#   export DB_ADMIN_PASSWORD=localdev APP_API_PASSWORD=localdev APP_WORKER_PASSWORD=localdev
+#   export KMS_KEY_MATERIAL_FILE=./localstack/dev-key-material.b64
+#   docker compose -p eventform-prod \
+#     -f infra/compose/docker-compose.prod.yml \
+#     -f infra/compose/docker-compose.prod-local.override.yml \
+#     up -d --build
+#
+# Tear down: docker compose -p eventform-prod down -v
+
+name: eventform-prod
+
+services:
+  postgres:
+    # Publish postgres locally so migrations can run from the host
+    ports:
+      - "127.0.0.1:15432:5432"
+    environment:
+      POSTGRES_USER: eventform
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: eventform
+
+  localstack:
+    ports:
+      - "127.0.0.1:14566:4566"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      AUTH_MODE: dev
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:8081"
+      TRUST_PROXY: "0"
+      # app_api is created by migration 0001_rls.sql with password 'app_api_dev'
+      DATABASE_URL_API: postgres://app_api:app_api_dev@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+      COGNITO_ISSUER: ""
+      COGNITO_CLIENT_ID: ""
+    # Expose API directly so the browser (via SPA) can reach http://localhost:8081
+    ports:
+      - "127.0.0.1:8081:3001"
+
+  worker:
+    environment:
+      # app_worker is created by migration 0001_rls.sql with password 'app_worker_dev'
+      DATABASE_URL_WORKER: postgres://app_worker:app_worker_dev@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+
+  migrate:
+    environment:
+      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+
+  connect-init:
+    environment:
+      DB_ADMIN_PASSWORD: localdev
+    # Override entrypoint: substitute the DB password at runtime.
+    # The dev connector JSON hardcodes 'eventform' for database.password but the local
+    # prod stack uses DB_ADMIN_PASSWORD (localdev). We replace the specific field.
+    entrypoint: >
+      sh -c '
+        set -e
+        echo "registering connector (db password substituted)..."
+        CONFIG=$$(sed "s/\"database.password\": \"eventform\"/\"database.password\": \"$$DB_ADMIN_PASSWORD\"/" /connector/eventform-outbox.json)
+        curl -fsS -X PUT \
+          -H "Content-Type: application/json" \
+          --data "$$CONFIG" \
+          http://connect:8083/connectors/eventform-outbox/config
+        echo "connector registered"
+      '
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: infra/caddy/Dockerfile
+      args:
+        # Bake dev-mode VITE_* into the local Caddy image
+        VITE_API_URL: "http://localhost:8081"
+        VITE_AUTH_MODE: dev
+        VITE_COGNITO_DOMAIN: ""
+        VITE_COGNITO_CLIENT_ID: ""
+        VITE_REDIRECT_URI: ""
+    ports:
+      - "8080:80"
+    environment:
+      ACME_EMAIL: ""
+    # Override Caddyfile to disable auto_https and serve on plain :80
+    configs:
+      - source: caddyfile_local
+        target: /etc/caddy/Caddyfile
+
+configs:
+  caddyfile_local:
+    content: |
+      {
+        auto_https off
+      }
+
+      :80 {
+        root * /srv/web
+        encode gzip
+        try_files {path} /index.html
+        file_server
+      }

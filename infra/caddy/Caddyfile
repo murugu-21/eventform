@@ -1,0 +1,14 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$WEB_HOST:eventform.murugappan.dev} {
+  root * /srv/web
+  encode gzip
+  try_files {path} /index.html
+  file_server
+}
+
+{$API_HOST:eventform-api.murugappan.dev} {
+  reverse_proxy api:3001
+}

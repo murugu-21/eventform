@@ -1,0 +1,222 @@
+# x-required-env: document every ${VAR} used in this file
+#
+#   DB_ADMIN_PASSWORD        postgres superuser password (POSTGRES_PASSWORD)
+#   APP_API_PASSWORD         password for the app_api role
+#   APP_WORKER_PASSWORD      password for the app_worker role
+#   KMS_KEY_MATERIAL_FILE    host path to the base64-encoded AES-256 key material (mode 600)
+#   COGNITO_ISSUER           https://cognito-idp.<region>.amazonaws.com/<poolId>
+#   COGNITO_CLIENT_ID        Cognito app client id
+#   ACME_EMAIL               email for ACME/Let's Encrypt certificate registration
+#
+# Optional overrides (have defaults):
+#   WEB_HOST                 default: eventform.murugappan.dev
+#   API_HOST                 default: eventform-api.murugappan.dev
+#   AWS_REGION               default: us-east-1
+
+name: eventform-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_USER: eventform
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
+      POSTGRES_DB: eventform
+    # No published port in prod — access via docker exec or override file
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U eventform -d eventform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: kms
+    # No published port in prod
+    volumes:
+      - ./localstack/ready.d:/etc/localstack/init/ready.d:ro
+      # KMS_KEY_MATERIAL_FILE must be an absolute path on the host (or relative to the compose file dir)
+      - ${KMS_KEY_MATERIAL_FILE:-./localstack/dev-key-material.b64}:/etc/eventform/kms-key-material.b64:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal kms describe-key --key-id alias/eventform-endpoint-secrets --query KeyMetadata.KeyState --output text | grep -q Enabled"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_HEAP_OPTS: -Xmx256m -Xms128m
+    # No published port in prod — kafka is internal only
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  connect:
+    image: quay.io/debezium/connect:3.0
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: eventform-connect
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xmx384m -Xms256m
+    # No published port in prod
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8083/connectors > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+  connect-init:
+    # One-shot: registers the Debezium connector via the REST API.
+    # Retries until connect is ready, then exits.
+    image: curlimages/curl:8.11.0
+    restart: "no"
+    depends_on:
+      connect:
+        condition: service_healthy
+    environment:
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+    volumes:
+      - ./connect:/connector:ro
+    entrypoint: >
+      sh -c '
+        set -e
+        CONFIG=$$(cat /connector/eventform-outbox-prod.json | sed "s/\$${DB_ADMIN_PASSWORD}/$$DB_ADMIN_PASSWORD/g")
+        curl -fsS -X PUT \
+          -H "Content-Type: application/json" \
+          --data "$$CONFIG" \
+          http://connect:8083/connectors/eventform-outbox/config
+        echo "connector registered"
+      '
+
+  api:
+    image: ghcr.io/murugu21/eventform-api:latest
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      PORT: "3001"
+      DATABASE_URL_API: postgres://app_api:${APP_API_PASSWORD}@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+      AUTH_MODE: cognito
+      COGNITO_ISSUER: ${COGNITO_ISSUER}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
+      CORS_ORIGINS: https://eventform.murugappan.dev
+      TRUST_PROXY: "1"
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      KMS_KEY_ID: alias/eventform-endpoint-secrets
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  worker:
+    image: ghcr.io/murugu21/eventform-worker:latest
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      WORKER_PORT: "3002"
+      DATABASE_URL_WORKER: postgres://app_worker:${APP_WORKER_PASSWORD}@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+      # NOTE: Use the in-network PLAINTEXT listener (kafka:9092), not the external one (29092)
+      KAFKA_BROKERS: kafka:9092
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      KMS_KEY_ID: alias/eventform-endpoint-secrets
+
+  migrate:
+    # One-shot migration runner. Run with: docker compose -f docker-compose.prod.yml run --rm migrate
+    # Or use profile: docker compose -f docker-compose.prod.yml --profile setup up migrate
+    image: ghcr.io/murugu21/eventform-migrate:latest
+    build:
+      context: ../..
+      dockerfile: packages/db/Dockerfile.migrate
+    profiles: ["setup"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+
+  caddy:
+    image: ghcr.io/murugu21/eventform-caddy:latest
+    build:
+      context: ../..
+      dockerfile: infra/caddy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+      WEB_HOST: ${WEB_HOST:-eventform.murugappan.dev}
+      API_HOST: ${API_HOST:-eventform-api.murugappan.dev}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

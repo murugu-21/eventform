@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# Standalone migrate image: runs drizzle-kit migrate against the production database.
+# drizzle-kit is a devDependency, so we install ALL deps (no --prod).
+#
+# Usage (one-shot, run after postgres is healthy):
+#   docker compose -f infra/compose/docker-compose.prod.yml run --rm migrate
+# Or via setup profile:
+#   docker compose -f infra/compose/docker-compose.prod.yml --profile setup up migrate
+FROM node:22-alpine
+RUN corepack enable
+WORKDIR /repo
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/db/package.json packages/db/
+# Install ALL deps for db package (includes drizzle-kit as devDep)
+RUN pnpm install --frozen-lockfile --filter @eventform/db
+COPY packages/db ./packages/db
+WORKDIR /repo/packages/db
+# DATABASE_URL must be provided by the caller
+CMD ["pnpm", "migrate"]
