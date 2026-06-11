@@ -1140,3 +1140,77 @@ export class DeliveriesModule {}
 - `DELETE /endpoints/:id` with deliveries → 409; no SQL/params in any error
   response or log line.
 - Phase 3 (Debezium + Kafka + worker) can consume `outbox` rows as-is.
+
+---
+
+## Implementation notes (deviations)
+
+### DrizzleExceptionFilter: `@Catch()` catch-all with duck-typed Drizzle detection
+
+The plan specified `@Catch(DrizzleQueryError)`. In practice, drizzle-orm ships
+dual ESM/CJS builds; under vitest+SWC the `instanceof DrizzleQueryError` check
+fails because the import resolves to a different module copy than the one NestJS
+wires at runtime. The filter was changed to `@Catch()` (catch-all) with a
+duck-type guard that checks for the shape of a Drizzle query error
+(`err.query != null && err.cause != null`). The `@Catch(DrizzleQueryError)` form
+continues to work correctly in the production CJS build (unaffected).
+
+Two follow-on fixes were applied during this change:
+
+- **Unknown (non-Drizzle) errors**: now logged at `error` level with
+  `message` + `stack` so they are diagnosable without SQL leakage.
+- **String `HttpException` responses**: NestJS's built-in `ThrottlerException`
+  serialises its response as a bare string. The filter wraps those as
+  `{ statusCode, message }` so the 429 body is a proper JSON object
+  (was a bare string before).
+
+### `@HttpCode(201)` on the retry route
+
+The plan's controller snippet for `POST /deliveries/:id/retry` omitted
+`@HttpCode(201)`. The decorator was added to match the spec table
+(`201` on retry success).
+
+### Minor corrections surfaced in 2b-3 review
+
+- **Endpoint cap**: tenants are now capped at 20 endpoints; exceeded creates →
+  409 with a clear message.
+- **`Object.hasOwn` guard in answer validation**: `answers` object keys are
+  checked with `Object.hasOwn` to skip inherited prototype properties, closing a
+  potential prototype-pollution vector.
+- **`lonelySub` cleanup moved to `afterAll`**: the inline cleanup in the
+  "zero deliveries" test was moved into the suite's `afterAll` block so it runs
+  even when the test body throws.
+
+### Final test counts
+
+| Suite | Count |
+|---|---|
+| shared | 28 |
+| db | 12 |
+| api | 54 |
+| **Total** | **94** |
+
+### Phase 5 hard requirements carried forward
+
+These items were verified during Phase 2b and MUST land in the production
+deployment (Phase 5):
+
+- **`app.set("trust proxy", 1)`** — must be enabled when running behind Caddy.
+  Without it, `req.ip` resolves to the proxy's IP address, which collapses all
+  per-IP throttle buckets into one and makes `source_ip` useless. Verified by
+  probe: without the flag, all requests share the Caddy container IP.
+- **`AUTH_MODE=cognito`** — must be pinned in the prod compose file; the
+  `dev_verify-*` bypass MUST be absent from production.
+- **`REVOKE CREATE ON SCHEMA public FROM PUBLIC`** — must be run in the prod
+  bootstrap script to prevent unprivileged roles from creating objects in the
+  public schema.
+- **Rotate role passwords** — the default passwords in `.env.example` must be
+  replaced with strong random secrets before any public deployment.
+- **Prod KMS key material** — a real AWS KMS key (not LocalStack) must be
+  provisioned and the key material file must not be committed to the repo.
+
+### UI-phase note
+
+The deliveries list is capped at 200 rows (`LIMIT 200` in `DeliveriesService.list`).
+No cursor/keyset pagination is implemented yet. This should be addressed in the
+UI phase (Phase 4) when the frontend deliveries page is built.

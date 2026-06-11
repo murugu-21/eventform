@@ -28,7 +28,7 @@ pnpm test         # unit + KMS/RLS integration tests
 
 - `packages/shared` — webhook HMAC utils, event schemas (zod), KMS secret cipher
 - `packages/db` — Drizzle schema, migrations, tenant-scoped tx helper
-- `apps/api` — NestJS REST API *(phase 2)*
+- `apps/api` — NestJS REST API — auth, forms, endpoints, public submission, deliveries
 - `apps/worker` — Kafka consumer + webhook sender *(phase 3)*
 - `apps/web` — React frontend *(phase 4)*
 - `infra` — docker-compose + AWS CDK *(phase 5)*
@@ -37,3 +37,5 @@ pnpm test         # unit + KMS/RLS integration tests
 
 - [Design spec](docs/superpowers/specs/2026-06-11-eventform-design.md)
 - [Phase 1 plan](docs/superpowers/plans/2026-06-11-eventform-phase-1-foundation.md)
+- [Phase 2a plan](docs/superpowers/plans/2026-06-11-eventform-phase-2a-api-core.md)
+- [Phase 2b plan](docs/superpowers/plans/2026-06-11-eventform-phase-2b-public-outbox.md)
