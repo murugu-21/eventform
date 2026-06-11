@@ -23,7 +23,7 @@ import { FormsService } from "./forms.service";
 
 const uuidPipe = new ZodValidationPipe(uuidSchema);
 
-@Controller("forms")
+@Controller("protected/v1/forms")
 export class FormsController {
   constructor(private readonly forms: FormsService) {}
 

@@ -22,10 +22,10 @@ describe("submissions listing", () => {
 
   it("lists own submissions newest-first", async () => {
     const form = await publishForm(t, subA, "Sub list");
-    await t.http().post(`/f/${form.publicSlug}`).send({ answers: { "Your name": "First" } }).expect(201);
-    await t.http().post(`/f/${form.publicSlug}`).send({ answers: { "Your name": "Second" } }).expect(201);
+    await t.http().post(`/v1/forms/${form.publicSlug}`).send({ answers: { "Your name": "First" } }).expect(201);
+    await t.http().post(`/v1/forms/${form.publicSlug}`).send({ answers: { "Your name": "Second" } }).expect(201);
 
-    const res = await t.http().get(`/forms/${form.id}/submissions`).set(t.authed(subA)).expect(200);
+    const res = await t.http().get(`/protected/v1/forms/${form.id}/submissions`).set(t.authed(subA)).expect(200);
     expect(res.body).toHaveLength(2);
     expect(res.body[0].answers["Your name"]).toBe("Second");
     expect(res.body[1].answers["Your name"]).toBe("First");
@@ -33,6 +33,6 @@ describe("submissions listing", () => {
 
   it("404s for another tenant's form", async () => {
     const form = await publishForm(t, subA, "Iso subs");
-    await t.http().get(`/forms/${form.id}/submissions`).set(t.authed(subB)).expect(404);
+    await t.http().get(`/protected/v1/forms/${form.id}/submissions`).set(t.authed(subB)).expect(404);
   });
 });

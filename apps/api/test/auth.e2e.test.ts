@@ -27,7 +27,7 @@ describe("auth", () => {
   });
 
   it("rejects requests without a bearer token", async () => {
-    await request(app.getHttpServer()).get("/me").expect(401);
+    await request(app.getHttpServer()).get("/protected/v1/me").expect(401);
   });
 
   it("rejects malformed dev tokens", async () => {
@@ -40,13 +40,13 @@ describe("auth", () => {
       `Bearer dev_${"a".repeat(65)}`,
     ];
     for (const header of bad) {
-      await request(app.getHttpServer()).get("/me").set("Authorization", header).expect(401);
+      await request(app.getHttpServer()).get("/protected/v1/me").set("Authorization", header).expect(401);
     }
   });
 
   it("provisions a tenant on first valid request and returns it", async () => {
     const res = await request(app.getHttpServer())
-      .get("/me")
+      .get("/protected/v1/me")
       .set("Authorization", `Bearer dev_${sub}`)
       .expect(200);
     expect(res.body.tenantId).toMatch(/^[0-9a-f-]{36}$/);
@@ -59,11 +59,11 @@ describe("auth", () => {
 
   it("is idempotent — same sub maps to the same tenant", async () => {
     const a = await request(app.getHttpServer())
-      .get("/me")
+      .get("/protected/v1/me")
       .set("Authorization", `Bearer dev_${sub}`)
       .expect(200);
     const b = await request(app.getHttpServer())
-      .get("/me")
+      .get("/protected/v1/me")
       .set("Authorization", `Bearer dev_${sub}`)
       .expect(200);
     expect(a.body.tenantId).toBe(b.body.tenantId);

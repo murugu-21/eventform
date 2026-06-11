@@ -18,21 +18,21 @@ describe("endpoints", () => {
 
   it("creates an endpoint and returns the secret exactly once", async () => {
     const res = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "CI hook", url: "https://example.com/hook" })
       .expect(201);
     expect(res.body.secret).toMatch(/^whsec_[0-9a-f]{48}$/);
     expect(res.body).toMatchObject({ name: "CI hook", url: "https://example.com/hook", active: true });
 
-    const list = await t.http().get("/endpoints").set(t.authed(subA)).expect(200);
+    const list = await t.http().get("/protected/v1/endpoints").set(t.authed(subA)).expect(200);
     expect(list.body[0].secret).toBeUndefined();
     expect(list.body[0].secretCiphertext).toBeUndefined();
   });
 
   it("stores only ciphertext at rest", async () => {
     const res = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "At rest", url: "https://example.com/x" })
       .expect(201);
@@ -46,12 +46,12 @@ describe("endpoints", () => {
 
   it("reveals the secret via KMS decrypt", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "Reveal", url: "https://example.com/r" })
       .expect(201);
     const revealed = await t.http()
-      .get(`/endpoints/${created.body.id}/secret`)
+      .get(`/protected/v1/endpoints/${created.body.id}/secret`)
       .set(t.authed(subA))
       .expect(200);
     expect(revealed.body.secret).toBe(created.body.secret);
@@ -59,18 +59,18 @@ describe("endpoints", () => {
 
   it("rotates the secret", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "Rotate", url: "https://example.com/ro" })
       .expect(201);
     const rotated = await t.http()
-      .post(`/endpoints/${created.body.id}/rotate`)
+      .post(`/protected/v1/endpoints/${created.body.id}/rotate`)
       .set(t.authed(subA))
       .expect(201);
     expect(rotated.body.secret).toMatch(/^whsec_[0-9a-f]{48}$/);
     expect(rotated.body.secret).not.toBe(created.body.secret);
     const revealed = await t.http()
-      .get(`/endpoints/${created.body.id}/secret`)
+      .get(`/protected/v1/endpoints/${created.body.id}/secret`)
       .set(t.authed(subA))
       .expect(200);
     expect(revealed.body.secret).toBe(rotated.body.secret);
@@ -78,12 +78,12 @@ describe("endpoints", () => {
 
   it("updates name/url/active", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "U", url: "https://example.com/u" })
       .expect(201);
     const res = await t.http()
-      .put(`/endpoints/${created.body.id}`)
+      .put(`/protected/v1/endpoints/${created.body.id}`)
       .set(t.authed(subA))
       .send({ active: false, name: "U2" })
       .expect(200);
@@ -92,7 +92,7 @@ describe("endpoints", () => {
 
   it("rejects non-http(s) urls", async () => {
     await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "ftp", url: "ftp://example.com" })
       .expect(400);
@@ -100,38 +100,38 @@ describe("endpoints", () => {
 
   it("deletes an endpoint", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "Del", url: "https://example.com/d" })
       .expect(201);
-    await t.http().delete(`/endpoints/${created.body.id}`).set(t.authed(subA)).expect(204);
-    await t.http().get(`/endpoints/${created.body.id}/secret`).set(t.authed(subA)).expect(404);
+    await t.http().delete(`/protected/v1/endpoints/${created.body.id}`).set(t.authed(subA)).expect(204);
+    await t.http().get(`/protected/v1/endpoints/${created.body.id}/secret`).set(t.authed(subA)).expect(404);
   });
 
   it("isolates endpoints between tenants (404 cross-tenant)", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "Iso", url: "https://example.com/i" })
       .expect(201);
-    await t.http().get(`/endpoints/${created.body.id}/secret`).set(t.authed(subB)).expect(404);
-    await t.http().post(`/endpoints/${created.body.id}/rotate`).set(t.authed(subB)).expect(404);
-    await t.http().delete(`/endpoints/${created.body.id}`).set(t.authed(subB)).expect(404);
+    await t.http().get(`/protected/v1/endpoints/${created.body.id}/secret`).set(t.authed(subB)).expect(404);
+    await t.http().post(`/protected/v1/endpoints/${created.body.id}/rotate`).set(t.authed(subB)).expect(404);
+    await t.http().delete(`/protected/v1/endpoints/${created.body.id}`).set(t.authed(subB)).expect(404);
   });
 
   it("rejects mass-assignment of protected fields", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "MA", url: "https://example.com/ma" })
       .expect(201);
     await t.http()
-      .put(`/endpoints/${created.body.id}`)
+      .put(`/protected/v1/endpoints/${created.body.id}`)
       .set(t.authed(subA))
       .send({ secretCiphertext: "evil" })
       .expect(400);
     await t.http()
-      .put(`/endpoints/${created.body.id}`)
+      .put(`/protected/v1/endpoints/${created.body.id}`)
       .set(t.authed(subA))
       .send({ tenantId: "00000000-0000-4000-8000-000000000000" })
       .expect(400);
@@ -139,21 +139,21 @@ describe("endpoints", () => {
 
   it("rejects an empty update", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "EU", url: "https://example.com/eu" })
       .expect(201);
-    await t.http().put(`/endpoints/${created.body.id}`).set(t.authed(subA)).send({}).expect(400);
+    await t.http().put(`/protected/v1/endpoints/${created.body.id}`).set(t.authed(subA)).send({}).expect(400);
   });
 
   it("returns 404 for cross-tenant updates", async () => {
     const created = await t.http()
-      .post("/endpoints")
+      .post("/protected/v1/endpoints")
       .set(t.authed(subA))
       .send({ name: "XU", url: "https://example.com/xu" })
       .expect(201);
     await t.http()
-      .put(`/endpoints/${created.body.id}`)
+      .put(`/protected/v1/endpoints/${created.body.id}`)
       .set(t.authed(subB))
       .send({ name: "hijack" })
       .expect(404);

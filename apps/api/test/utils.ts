@@ -61,8 +61,8 @@ export async function publishForm(
   sub: string,
   title = "Public form",
 ): Promise<{ id: string; publicSlug: string }> {
-  const form = await t.http().post("/forms").set(t.authed(sub)).send({ title }).expect(201);
-  await t.http().put(`/forms/${form.body.id}/fields`).set(t.authed(sub)).send(PUBLISH_FIELDS).expect(200);
-  await t.http().post(`/forms/${form.body.id}/publish`).set(t.authed(sub)).expect(201);
+  const form = await t.http().post("/protected/v1/forms").set(t.authed(sub)).send({ title }).expect(201);
+  await t.http().put(`/protected/v1/forms/${form.body.id}/fields`).set(t.authed(sub)).send(PUBLISH_FIELDS).expect(200);
+  await t.http().post(`/protected/v1/forms/${form.body.id}/publish`).set(t.authed(sub)).expect(201);
   return form.body;
 }

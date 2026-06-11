@@ -18,7 +18,7 @@ describe("public form read", () => {
 
   it("serves a published form anonymously without internal ids", async () => {
     const form = await publishForm(t, sub);
-    const res = await t.http().get(`/f/${form.publicSlug}`).expect(200);
+    const res = await t.http().get(`/v1/forms/${form.publicSlug}`).expect(200);
     expect(res.body.title).toBe("Public form");
     expect(res.body.fields).toHaveLength(2);
     expect(res.body.fields[0]).toMatchObject({ type: "text", label: "Your name", required: true });
@@ -28,9 +28,9 @@ describe("public form read", () => {
   });
 
   it("404s for drafts and unknown slugs", async () => {
-    const draft = await t.http().post("/forms").set(t.authed(sub)).send({ title: "Draft" }).expect(201);
-    await t.http().get(`/f/${draft.body.publicSlug}`).expect(404);
-    await t.http().get("/f/does-not-exist").expect(404);
+    const draft = await t.http().post("/protected/v1/forms").set(t.authed(sub)).send({ title: "Draft" }).expect(201);
+    await t.http().get(`/v1/forms/${draft.body.publicSlug}`).expect(404);
+    await t.http().get("/v1/forms/does-not-exist").expect(404);
   });
 });
 
@@ -65,16 +65,16 @@ describe("public form submit", () => {
 
   it("writes submission, deliveries, and outbox rows in one transaction", async () => {
     const form = await publishForm(t, sub, "Submit target");
-    const ep1 = await t.http().post("/endpoints").set(t.authed(sub))
+    const ep1 = await t.http().post("/protected/v1/endpoints").set(t.authed(sub))
       .send({ name: "e1", url: "https://example.com/1" }).expect(201);
-    await t.http().post("/endpoints").set(t.authed(sub))
+    await t.http().post("/protected/v1/endpoints").set(t.authed(sub))
       .send({ name: "e2", url: "https://example.com/2" }).expect(201);
-    const inactive = await t.http().post("/endpoints").set(t.authed(sub))
+    const inactive = await t.http().post("/protected/v1/endpoints").set(t.authed(sub))
       .send({ name: "off", url: "https://example.com/off" }).expect(201);
-    await t.http().put(`/endpoints/${inactive.body.id}`).set(t.authed(sub))
+    await t.http().put(`/protected/v1/endpoints/${inactive.body.id}`).set(t.authed(sub))
       .send({ active: false }).expect(200);
 
-    const res = await t.http().post(`/f/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
+    const res = await t.http().post(`/v1/forms/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
     expect(res.body.submissionId).toMatch(/^[0-9a-f-]{36}$/);
 
     const subs = await t.adminPool.query("SELECT * FROM submissions WHERE id = $1", [res.body.submissionId]);
@@ -112,7 +112,7 @@ describe("public form submit", () => {
   it("saves a submission with zero deliveries when no active endpoints exist", async () => {
     lonelySub = `pub-lonely-${randomUUID()}`;
     const form = await publishForm(t, lonelySub, "No endpoints");
-    const res = await t.http().post(`/f/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
+    const res = await t.http().post(`/v1/forms/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
     const deliveries = await t.adminPool.query(
       "SELECT count(*)::int AS n FROM deliveries WHERE submission_id = $1", [res.body.submissionId]);
     expect(deliveries.rows[0].n).toBe(0);
@@ -121,18 +121,18 @@ describe("public form submit", () => {
 
   it("validates answers: missing required, unknown key, bad option, non-string", async () => {
     const form = await publishForm(t, sub, "Validation");
-    await t.http().post(`/f/${form.publicSlug}`).send({ answers: { Rating: "Good" } }).expect(400);
-    await t.http().post(`/f/${form.publicSlug}`)
+    await t.http().post(`/v1/forms/${form.publicSlug}`).send({ answers: { Rating: "Good" } }).expect(400);
+    await t.http().post(`/v1/forms/${form.publicSlug}`)
       .send({ answers: { "Your name": "Ada", Nope: "x" } }).expect(400);
-    await t.http().post(`/f/${form.publicSlug}`)
+    await t.http().post(`/v1/forms/${form.publicSlug}`)
       .send({ answers: { "Your name": "Ada", Rating: "Meh" } }).expect(400);
-    await t.http().post(`/f/${form.publicSlug}`)
+    await t.http().post(`/v1/forms/${form.publicSlug}`)
       .send({ answers: { "Your name": 42 } }).expect(400);
-    await t.http().post(`/f/${form.publicSlug}`).send({}).expect(400);
+    await t.http().post(`/v1/forms/${form.publicSlug}`).send({}).expect(400);
   });
 
   it("404s submits to drafts", async () => {
-    const draft = await t.http().post("/forms").set(t.authed(sub)).send({ title: "D" }).expect(201);
-    await t.http().post(`/f/${draft.body.publicSlug}`).send(VALID_ANSWERS).expect(404);
+    const draft = await t.http().post("/protected/v1/forms").set(t.authed(sub)).send({ title: "D" }).expect(201);
+    await t.http().post(`/v1/forms/${draft.body.publicSlug}`).send(VALID_ANSWERS).expect(404);
   });
 });

@@ -22,7 +22,7 @@ import { EndpointsService } from "./endpoints.service";
 
 const uuidPipe = new ZodValidationPipe(uuidSchema);
 
-@Controller("endpoints")
+@Controller("protected/v1/endpoints")
 export class EndpointsController {
   constructor(private readonly endpoints: EndpointsService) {}
 

@@ -20,7 +20,7 @@ import { SubmitBodyDto, submitBodySchema } from "./public.schemas";
 import { PublicService, ResolvedForm } from "./public.service";
 
 @Public()
-@Controller("f")
+@Controller("v1/forms")
 export class PublicController {
   constructor(private readonly service: PublicService) {}
 

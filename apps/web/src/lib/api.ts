@@ -114,17 +114,17 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
 }
 
 export const api = {
-  me: () => request<{ tenantId: string; name: string }>("/me"),
+  me: () => request<{ tenantId: string; name: string }>("/protected/v1/me"),
 
-  listForms: () => request<Form[]>("/forms"),
+  listForms: () => request<Form[]>("/protected/v1/forms"),
   createForm: (title: string) =>
-    request<Form>("/forms", { method: "POST", body: JSON.stringify({ title }) }),
-  getForm: (id: string) => request<FormWithFields>(`/forms/${id}`),
+    request<Form>("/protected/v1/forms", { method: "POST", body: JSON.stringify({ title }) }),
+  getForm: (id: string) => request<FormWithFields>(`/protected/v1/forms/${id}`),
   updateForm: (id: string, title: string) =>
-    request<Form>(`/forms/${id}`, { method: "PUT", body: JSON.stringify({ title }) }),
-  deleteForm: (id: string) => request<void>(`/forms/${id}`, { method: "DELETE" }),
+    request<Form>(`/protected/v1/forms/${id}`, { method: "PUT", body: JSON.stringify({ title }) }),
+  deleteForm: (id: string) => request<void>(`/protected/v1/forms/${id}`, { method: "DELETE" }),
   replaceFields: (id: string, fields: Omit<import("./types").FormField, "id" | "position">[]) =>
-    request<import("./types").FormField[]>(`/forms/${id}/fields`, {
+    request<import("./types").FormField[]>(`/protected/v1/forms/${id}/fields`, {
       method: "PUT",
       body: JSON.stringify({
         fields: fields.map(({ type, label, options, required }) => ({
@@ -132,33 +132,33 @@ export const api = {
         })),
       }),
     }),
-  publishForm: (id: string) => request<Form>(`/forms/${id}/publish`, { method: "POST" }),
-  listSubmissions: (formId: string) => request<Submission[]>(`/forms/${formId}/submissions`),
+  publishForm: (id: string) => request<Form>(`/protected/v1/forms/${id}/publish`, { method: "POST" }),
+  listSubmissions: (formId: string) => request<Submission[]>(`/protected/v1/forms/${formId}/submissions`),
 
-  listEndpoints: () => request<Endpoint[]>("/endpoints"),
+  listEndpoints: () => request<Endpoint[]>("/protected/v1/endpoints"),
   createEndpoint: (name: string, url: string) =>
-    request<EndpointWithSecret>("/endpoints", { method: "POST", body: JSON.stringify({ name, url }) }),
+    request<EndpointWithSecret>("/protected/v1/endpoints", { method: "POST", body: JSON.stringify({ name, url }) }),
   updateEndpoint: (id: string, patch: Partial<Pick<Endpoint, "name" | "url" | "active">>) =>
-    request<Endpoint>(`/endpoints/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
-  deleteEndpoint: (id: string) => request<void>(`/endpoints/${id}`, { method: "DELETE" }),
-  revealSecret: (id: string) => request<{ secret: string }>(`/endpoints/${id}/secret`),
+    request<Endpoint>(`/protected/v1/endpoints/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+  deleteEndpoint: (id: string) => request<void>(`/protected/v1/endpoints/${id}`, { method: "DELETE" }),
+  revealSecret: (id: string) => request<{ secret: string }>(`/protected/v1/endpoints/${id}/secret`),
   rotateSecret: (id: string) =>
-    request<EndpointWithSecret>(`/endpoints/${id}/rotate`, { method: "POST" }),
+    request<EndpointWithSecret>(`/protected/v1/endpoints/${id}/rotate`, { method: "POST" }),
 
   listDeliveries: (filter: { status?: string; endpointId?: string } = {}) => {
     const qs = new URLSearchParams(
       Object.entries(filter).filter(([, v]) => v != null) as [string, string][],
     ).toString();
-    return request<Delivery[]>(`/deliveries${qs ? `?${qs}` : ""}`);
+    return request<Delivery[]>(`/protected/v1/deliveries${qs ? `?${qs}` : ""}`);
   },
-  getDelivery: (id: string) => request<DeliveryDetail>(`/deliveries/${id}`),
+  getDelivery: (id: string) => request<DeliveryDetail>(`/protected/v1/deliveries/${id}`),
   retryDelivery: (id: string) =>
-    request<Delivery>(`/deliveries/${id}/retry`, { method: "POST" }),
+    request<Delivery>(`/protected/v1/deliveries/${id}/retry`, { method: "POST" }),
 
-  publicGetForm: (slug: string) => request<PublicForm>(`/f/${slug}`, {}, false),
+  publicGetForm: (slug: string) => request<PublicForm>(`/v1/forms/${slug}`, {}, false),
   publicSubmit: (slug: string, answers: Record<string, string>) =>
     request<{ submissionId: string }>(
-      `/f/${slug}`,
+      `/v1/forms/${slug}`,
       { method: "POST", body: JSON.stringify({ answers }) },
       false,
     ),

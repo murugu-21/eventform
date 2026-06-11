@@ -7,7 +7,7 @@ import { SubmissionsService } from "./submissions.service";
 
 const uuidPipe = new ZodValidationPipe(uuidSchema);
 
-@Controller("forms/:id/submissions")
+@Controller("protected/v1/forms/:id/submissions")
 export class SubmissionsController {
   constructor(private readonly service: SubmissionsService) {}
 

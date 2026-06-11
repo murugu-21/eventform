@@ -25,8 +25,8 @@ describe("public submit throttling", () => {
     const form = await publishForm(t, sub, "Throttle me");
     const answers = { answers: { "Your name": "Ada" } };
     for (let i = 0; i < 10; i++) {
-      await t.http().post(`/f/${form.publicSlug}`).send(answers).expect(201);
+      await t.http().post(`/v1/forms/${form.publicSlug}`).send(answers).expect(201);
     }
-    await t.http().post(`/f/${form.publicSlug}`).send(answers).expect(429);
+    await t.http().post(`/v1/forms/${form.publicSlug}`).send(answers).expect(429);
   });
 });

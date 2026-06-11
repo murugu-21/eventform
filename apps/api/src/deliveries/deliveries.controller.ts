@@ -8,7 +8,7 @@ import { DeliveriesService } from "./deliveries.service";
 
 const uuidPipe = new ZodValidationPipe(uuidSchema);
 
-@Controller("deliveries")
+@Controller("protected/v1/deliveries")
 export class DeliveriesController {
   constructor(private readonly service: DeliveriesService) {}
 
