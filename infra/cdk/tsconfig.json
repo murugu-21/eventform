@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
-    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": [
+      "ES2022"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,8 +15,19 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": ".",
-    "noEmitOnError": true
+    "noEmitOnError": true,
+    "types": [
+      "node"
+    ]
   },
-  "include": ["bin", "lib", "test"],
-  "exclude": ["node_modules", "dist", "cdk.out"]
+  "include": [
+    "bin",
+    "lib",
+    "test"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "cdk.out"
+  ]
 }
