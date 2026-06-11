@@ -1,0 +1,38 @@
+name: eventform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_USER: eventform
+      POSTGRES_PASSWORD: eventform
+      POSTGRES_DB: eventform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventform -d eventform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: kms
+      KMS_KEY_MATERIAL_PATH: /etc/eventform/kms-key-material.b64
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./localstack/ready.d:/etc/localstack/init/ready.d:ro
+      - ./localstack/dev-key-material.b64:/etc/eventform/kms-key-material.b64:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal kms describe-key --key-id alias/eventform-endpoint-secrets"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
