@@ -1,6 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { endpoints, withTenant } from "@eventform/db";
 import { generateEndpointSecret, SecretCipher } from "@eventform/shared";
 import { API_POOL, SECRET_CIPHER } from "../db/db.module";
@@ -45,7 +45,7 @@ export class EndpointsService {
       const [updated] = await db
         .update(endpoints)
         .set(dto)
-        .where(eq(endpoints.id, id))
+        .where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)))
         .returning();
       return updated;
     });
@@ -57,7 +57,7 @@ export class EndpointsService {
 
   async remove(tenantId: string, id: string) {
     const removed = await withTenant(this.pool, tenantId, async (db) => {
-      const rows = await db.delete(endpoints).where(eq(endpoints.id, id)).returning();
+      const rows = await db.delete(endpoints).where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId))).returning();
       return rows[0];
     });
     if (!removed) {
@@ -67,7 +67,7 @@ export class EndpointsService {
 
   async revealSecret(tenantId: string, id: string) {
     const row = await withTenant(this.pool, tenantId, async (db) => {
-      const [found] = await db.select().from(endpoints).where(eq(endpoints.id, id));
+      const [found] = await db.select().from(endpoints).where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)));
       return found;
     });
     if (!row) {
@@ -84,7 +84,7 @@ export class EndpointsService {
       const [updated] = await db
         .update(endpoints)
         .set({ secretCiphertext })
-        .where(eq(endpoints.id, id))
+        .where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)))
         .returning();
       return updated;
     });

@@ -118,4 +118,44 @@ describe("endpoints", () => {
     await t.http().post(`/endpoints/${created.body.id}/rotate`).set(t.authed(subB)).expect(404);
     await t.http().delete(`/endpoints/${created.body.id}`).set(t.authed(subB)).expect(404);
   });
+
+  it("rejects mass-assignment of protected fields", async () => {
+    const created = await t.http()
+      .post("/endpoints")
+      .set(t.authed(subA))
+      .send({ name: "MA", url: "https://example.com/ma" })
+      .expect(201);
+    await t.http()
+      .put(`/endpoints/${created.body.id}`)
+      .set(t.authed(subA))
+      .send({ secretCiphertext: "evil" })
+      .expect(400);
+    await t.http()
+      .put(`/endpoints/${created.body.id}`)
+      .set(t.authed(subA))
+      .send({ tenantId: "00000000-0000-4000-8000-000000000000" })
+      .expect(400);
+  });
+
+  it("rejects an empty update", async () => {
+    const created = await t.http()
+      .post("/endpoints")
+      .set(t.authed(subA))
+      .send({ name: "EU", url: "https://example.com/eu" })
+      .expect(201);
+    await t.http().put(`/endpoints/${created.body.id}`).set(t.authed(subA)).send({}).expect(400);
+  });
+
+  it("returns 404 for cross-tenant updates", async () => {
+    const created = await t.http()
+      .post("/endpoints")
+      .set(t.authed(subA))
+      .send({ name: "XU", url: "https://example.com/xu" })
+      .expect(201);
+    await t.http()
+      .put(`/endpoints/${created.body.id}`)
+      .set(t.authed(subB))
+      .send({ name: "hijack" })
+      .expect(404);
+  });
 });
