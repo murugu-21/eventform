@@ -33,6 +33,8 @@ describe("row-level security", () => {
   });
 
   afterAll(async () => {
+    await adminPool.query("DELETE FROM forms WHERE tenant_id = ANY($1)", [[tenantA, tenantB]]);
+    await adminPool.query("DELETE FROM tenants WHERE id = ANY($1)", [[tenantA, tenantB]]);
     await adminPool.end();
     await apiPool.end();
   });
@@ -122,5 +124,34 @@ describe("row-level security", () => {
     );
     const res = await adminPool.query("SELECT 1 FROM forms WHERE public_slug = $1", [slug]);
     expect(res.rowCount).toBe(1);
+  });
+
+  it("has RLS enabled with a tenant_isolation policy on all tenant-scoped tables", async () => {
+    const TENANT_TABLES = [
+      "forms",
+      "form_fields",
+      "submissions",
+      "endpoints",
+      "outbox",
+      "deliveries",
+      "delivery_attempts",
+    ];
+    const rls = await adminPool.query(
+      `SELECT c.relname,
+              c.relrowsecurity,
+              EXISTS (
+                SELECT 1 FROM pg_policy p
+                WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'
+              ) AS has_policy
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relname = ANY($1)`,
+      [TENANT_TABLES],
+    );
+    expect(rls.rows).toHaveLength(TENANT_TABLES.length);
+    for (const row of rls.rows) {
+      expect(row.relrowsecurity, `${row.relname} should have RLS enabled`).toBe(true);
+      expect(row.has_policy, `${row.relname} should have tenant_isolation policy`).toBe(true);
+    }
   });
 });
