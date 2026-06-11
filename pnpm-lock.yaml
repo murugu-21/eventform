@@ -31,6 +31,9 @@ importers:
       drizzle-orm:
         specifier: ^0.44.0
         version: 0.44.7(@types/pg@8.20.0)(pg@8.21.0)
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       pg:
         specifier: ^8.16.0
         version: 8.21.0

@@ -4,6 +4,9 @@ export interface ApiConfig {
   databaseUrlApi: string;
   databaseUrlAdmin: string;
   authMode: "dev" | "cognito";
+  cognitoIssuer: string;
+  cognitoClientId: string;
+  trustProxy: boolean;
   kmsKeyId: string;
   awsEndpointUrl: string;
   awsRegion: string;
@@ -21,6 +24,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     databaseUrlAdmin:
       env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform",
     authMode: env.AUTH_MODE === "cognito" ? "cognito" : "dev",
+    cognitoIssuer: env.COGNITO_ISSUER ?? "",
+    cognitoClientId: env.COGNITO_CLIENT_ID ?? "",
+    trustProxy: env.TRUST_PROXY === "1",
     kmsKeyId: env.KMS_KEY_ID ?? "alias/eventform-endpoint-secrets",
     // LocalStack KMS is the provider in dev AND prod (on the EC2 it's
     // http://localstack:4566 — set by the Phase 5 compose). Real AWS KMS is
