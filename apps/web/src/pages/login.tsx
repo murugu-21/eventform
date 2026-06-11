@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth } from "@/lib/auth";
+import { useAuth, AUTH_MODE } from "@/lib/auth";
 
 const HANDLE_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -22,6 +22,30 @@ export default function LoginPage() {
     }
     signIn(handle);
     void navigate("/app");
+  }
+
+  if (AUTH_MODE === "cognito") {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Sign in to Eventform</CardTitle>
+            <CardDescription>
+              Sign in with your Google account to continue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => signIn()}
+            >
+              Continue with Google
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

@@ -2,9 +2,18 @@ import type {
   Delivery, DeliveryDetail, Endpoint, EndpointWithSecret,
   Form, FormWithFields, PublicForm, Submission,
 } from "./types";
+import { refreshTokens } from "./pkce";
+import { getAccessToken, getRefreshToken, storeTokens } from "@/pages/auth-callback";
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+const AUTH_MODE: string = import.meta.env.VITE_AUTH_MODE ?? "dev";
 const DEV_SUB_KEY = "eventform.devSub";
+
+const COGNITO_CFG = {
+  domain: import.meta.env.VITE_COGNITO_DOMAIN ?? "",
+  clientId: import.meta.env.VITE_COGNITO_CLIENT_ID ?? "",
+  redirectUri: import.meta.env.VITE_REDIRECT_URI ?? "",
+};
 
 export class ApiError extends Error {
   constructor(
@@ -28,26 +37,79 @@ export function setDevSub(sub: string | null): void {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
+function getAuthHeader(): string | null {
+  if (AUTH_MODE === "cognito") {
+    const token = getAccessToken();
+    if (!token) return null;
+    return `Bearer ${token}`;
+  }
+  const sub = getDevSub();
+  if (!sub) return null;
+  return `Bearer dev_${sub}`;
+}
+
+/** Attempt one token refresh. Returns new access token or throws. */
+async function attemptRefresh(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    throw new ApiError(401, "no refresh token");
+  }
+  const tokens = await refreshTokens(COGNITO_CFG, refreshToken);
+  storeTokens(tokens.access_token, tokens.refresh_token);
+  return tokens.access_token;
+}
+
+async function rawFetch(path: string, init: RequestInit, authHeader: string | null): Promise<Response> {
   const headers: Record<string, string> = {};
   if (init.body) {
     headers["content-type"] = "application/json";
   }
-  if (auth) {
+  if (authHeader) {
+    headers.authorization = authHeader;
+  }
+  return fetch(`${API_URL}${path}`, { ...init, headers: { ...headers, ...init.headers } });
+}
+
+async function request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
+  if (auth && AUTH_MODE !== "cognito") {
+    // Dev mode — simple path, no retry
     const sub = getDevSub();
     if (!sub) {
       throw new ApiError(401, "not signed in");
     }
+    const headers: Record<string, string> = {};
+    if (init.body) {
+      headers["content-type"] = "application/json";
+    }
     headers.authorization = `Bearer dev_${sub}`;
+    const res = await fetch(`${API_URL}${path}`, { ...init, headers: { ...headers, ...init.headers } });
+    if (res.status === 204) return undefined as T;
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(res.status, body?.message ?? res.statusText, body?.errors);
+    return body as T;
   }
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers: { ...headers, ...init.headers } });
-  if (res.status === 204) {
-    return undefined as T;
+
+  // Cognito mode (or unauthenticated)
+  const authHeader = auth ? getAuthHeader() : null;
+  if (auth && !authHeader) {
+    throw new ApiError(401, "not signed in");
   }
+
+  let res = await rawFetch(path, init, authHeader);
+
+  // One refresh-and-retry on 401 in cognito mode (never in dev mode, never loops)
+  if (auth && AUTH_MODE === "cognito" && res.status === 401) {
+    try {
+      const newToken = await attemptRefresh();
+      res = await rawFetch(path, init, `Bearer ${newToken}`);
+    } catch {
+      throw new ApiError(401, "session expired");
+    }
+  }
+
+  if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new ApiError(res.status, body?.message ?? res.statusText, body?.errors);
-  }
+  if (!res.ok) throw new ApiError(res.status, body?.message ?? res.statusText, body?.errors);
   return body as T;
 }
 

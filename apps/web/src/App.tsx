@@ -6,6 +6,7 @@ import { AuthProvider, RequireAuth } from "@/lib/auth";
 // Pages
 import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
+import AuthCallbackPage from "@/pages/auth-callback";
 import PublicFormPage from "@/pages/public-form";
 import NotFoundPage from "@/pages/not-found";
 import DashboardPage from "@/pages/dashboard";
@@ -32,6 +33,7 @@ export default function App() {
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/f/:slug" element={<PublicFormPage />} />
 
             {/* Catch-all */}
