@@ -31,14 +31,17 @@ describe("auth", () => {
   });
 
   it("rejects malformed dev tokens", async () => {
-    await request(app.getHttpServer())
-      .get("/me")
-      .set("Authorization", "Bearer dev_!!bad!!")
-      .expect(401);
-    await request(app.getHttpServer())
-      .get("/me")
-      .set("Authorization", "Bearer not-a-dev-token")
-      .expect(401);
+    const bad = [
+      "Bearer dev_!!bad!!",
+      "Bearer not-a-dev-token",
+      "Bearer ",
+      "Bearer dev_",
+      "bearer dev_x",
+      `Bearer dev_${"a".repeat(65)}`,
+    ];
+    for (const header of bad) {
+      await request(app.getHttpServer()).get("/me").set("Authorization", header).expect(401);
+    }
   });
 
   it("provisions a tenant on first valid request and returns it", async () => {
