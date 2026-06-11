@@ -22,7 +22,17 @@ const fieldSchema = z
 
 export const replaceFieldsSchema = z
   .object({ fields: z.array(fieldSchema).min(1).max(50) })
-  .strict();
+  .strict()
+  .superRefine((dto, ctx) => {
+    const labels = dto.fields.map((f) => f.label);
+    if (new Set(labels).size !== labels.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fields"],
+        message: "field labels must be unique",
+      });
+    }
+  });
 
 export type CreateFormDto = z.infer<typeof createFormSchema>;
 export type ReplaceFieldsDto = z.infer<typeof replaceFieldsSchema>;

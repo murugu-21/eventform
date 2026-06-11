@@ -61,7 +61,7 @@ export class FormsService {
 
   async remove(tenantId: string, formId: string) {
     return withTenant(this.pool, tenantId, async (db) => {
-      const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+      const [form] = await db.select().from(forms).where(eq(forms.id, formId)).for("update");
       if (!form) {
         throw new NotFoundException("form not found");
       }
@@ -74,7 +74,7 @@ export class FormsService {
 
   async replaceFields(tenantId: string, formId: string, dto: ReplaceFieldsDto) {
     return withTenant(this.pool, tenantId, async (db) => {
-      const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+      const [form] = await db.select().from(forms).where(eq(forms.id, formId)).for("update");
       if (!form) {
         throw new NotFoundException("form not found");
       }
@@ -102,7 +102,7 @@ export class FormsService {
 
   async publish(tenantId: string, formId: string) {
     return withTenant(this.pool, tenantId, async (db) => {
-      const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+      const [form] = await db.select().from(forms).where(eq(forms.id, formId)).for("update");
       if (!form) {
         throw new NotFoundException("form not found");
       }

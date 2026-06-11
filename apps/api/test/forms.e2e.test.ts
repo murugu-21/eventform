@@ -100,6 +100,20 @@ describe("forms", () => {
     await t.http().delete(`/forms/${form.body.id}`).set(t.authed(subB)).expect(404);
   });
 
+  it("rejects duplicate field labels", async () => {
+    const form = await t.http().post("/forms").set(t.authed(subA)).send({ title: "Dup" }).expect(201);
+    await t.http()
+      .put(`/forms/${form.body.id}/fields`)
+      .set(t.authed(subA))
+      .send({
+        fields: [
+          { type: "text", label: "Same", required: false },
+          { type: "text", label: "Same", required: false },
+        ],
+      })
+      .expect(400);
+  });
+
   it("returns 400 for a non-uuid form id", async () => {
     await t.http().get("/forms/not-a-uuid").set(t.authed(subA)).expect(400);
   });
