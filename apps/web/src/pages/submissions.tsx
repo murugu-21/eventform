@@ -42,7 +42,7 @@ function deriveColumns(form: FormWithFields, submissions: Submission[]): string[
 
 // ── Empty state ──────────────────────────────────────────────────────────────
 function EmptyState({ form }: { form: FormWithFields }) {
-  const publicUrl = `${window.location.origin}/f/${form.publicSlug}`;
+  const publicUrl = `${window.location.origin}/forms/${form.publicSlug}`;
 
   if (form.status === "published") {
     return (

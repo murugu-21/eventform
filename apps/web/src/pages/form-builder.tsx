@@ -485,7 +485,7 @@ export default function FormBuilderPage() {
       setFields(local);
       setLastSavedFields(local);
       if (form.status === "published") {
-        setPublicUrl(`${window.location.origin}/f/${form.publicSlug}`);
+        setPublicUrl(`${window.location.origin}/forms/${form.publicSlug}`);
       }
     }
   }, [form]);
@@ -525,7 +525,7 @@ export default function FormBuilderPage() {
     onSuccess: (updatedForm) => {
       queryClient.invalidateQueries({ queryKey: ["form", id] });
       queryClient.invalidateQueries({ queryKey: ["forms"] });
-      const url = `${window.location.origin}/f/${updatedForm.publicSlug}`;
+      const url = `${window.location.origin}/forms/${updatedForm.publicSlug}`;
       setPublicUrl(url);
       setPublishDialogOpen(false);
       toast.success("Form published!");

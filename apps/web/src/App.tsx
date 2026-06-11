@@ -34,7 +34,7 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/f/:slug" element={<PublicFormPage />} />
+            <Route path="/forms/:slug" element={<PublicFormPage />} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFoundPage />} />

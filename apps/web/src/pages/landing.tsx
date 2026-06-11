@@ -147,7 +147,7 @@ export default function LandingPage() {
         {/* Flow diagram */}
         <div className="w-full max-w-4xl overflow-x-auto">
           <div className="flex items-center justify-center gap-0 min-w-max mx-auto py-4">
-            <FlowNode label="Form" sub="public /f/:slug" />
+            <FlowNode label="Form" sub="public /forms/:slug" />
             <Arrow />
             <FlowNode label="Postgres" sub="transactional outbox" />
             <Arrow />

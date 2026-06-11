@@ -245,7 +245,7 @@ export default function DashboardPage() {
             </thead>
             <tbody>
               {forms.map((form, i) => {
-                const publicUrl = `${window.location.origin}/f/${form.publicSlug}`;
+                const publicUrl = `${window.location.origin}/forms/${form.publicSlug}`;
                 return (
                   <tr
                     key={form.id}

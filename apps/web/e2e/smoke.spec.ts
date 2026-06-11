@@ -91,8 +91,8 @@ test("full loop: sign in → build → publish → submit → delivery delivered
   await expect(page.getByTestId("secret-value")).not.toBeVisible({ timeout: 5_000 });
 
   // ── 7. Anonymous submit ──────────────────────────────────────────────────────
-  const slug = publicLink!.trim().replace(/.*\/f\//, "");
-  await page.goto(`/f/${slug}`);
+  const slug = publicLink!.trim().replace(/.*\/forms\//, "");
+  await page.goto(`/forms/${slug}`);
   // Fill in the "Name" field (label matches exactly)
   await page.getByLabel("Name").fill("Playwright");
   await page.getByRole("button", { name: /submit/i }).click();

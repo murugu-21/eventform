@@ -141,13 +141,13 @@ pnpm --filter @eventform/web dev
 2. **Dashboard** → **New form** → enter a title → **Create**.
 
 3. **Form builder** → **Add field** → set label to `Name` → **Save fields** → **Publish**.
-   Copy the public `/f/<slug>` URL shown in the publish confirmation.
+   Copy the public `/forms/<slug>` URL shown in the publish confirmation.
 
 4. **Endpoints** → **New endpoint** → name it, set the URL to any POST-accepting target
    (e.g. [webhook.site](https://webhook.site), or `nc -l 9099`) → **Create** → copy and
    save the `whsec_...` secret → close the dialog.
 
-5. Open the `/f/<slug>` URL in a new tab, fill in the **Name** field, click **Submit**.
+5. Open the `/forms/<slug>` URL in a new tab, fill in the **Name** field, click **Submit**.
    You should see "Response recorded."
 
 6. Return to **Deliveries** — the row flips from `pending` to `delivered` within ~5 s.
