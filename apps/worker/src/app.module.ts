@@ -5,6 +5,7 @@ import { DbModule, SECRET_CIPHER, WORKER_POOL } from "./db.module";
 import { HealthController } from "./health.controller";
 import { DeliveryProcessor } from "./processor/delivery-processor.service";
 import { WebhookSender } from "./webhook/webhook-sender.service";
+import { KafkaConsumerService } from "./kafka/kafka-consumer.service";
 import { Pool } from "pg";
 
 @Module({
@@ -20,6 +21,11 @@ import { Pool } from "pg";
       provide: DeliveryProcessor,
       useFactory: (pool: Pool, sender: WebhookSender) => new DeliveryProcessor(pool, sender),
       inject: [WORKER_POOL, WebhookSender],
+    },
+    {
+      provide: KafkaConsumerService,
+      useFactory: (processor: DeliveryProcessor) => new KafkaConsumerService(processor),
+      inject: [DeliveryProcessor],
     },
   ],
 })
