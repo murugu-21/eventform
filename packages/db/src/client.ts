@@ -25,17 +25,18 @@ export async function withTenant<T>(
     const db = drizzle(client, { schema });
     const result = await fn(db, client);
     await client.query("COMMIT");
+    client.release();
     return result;
   } catch (err) {
     try {
       await client.query("ROLLBACK");
+      client.release();
     } catch {
-      // ROLLBACK itself failed (e.g. broken connection). The original error
-      // is still the one callers care about — swallow this secondary failure
-      // so we re-throw the original below.
+      // ROLLBACK failed on a still-open socket: the connection may be stuck
+      // mid-transaction — hand the error to release() so pg-pool destroys it
+      // instead of pooling a poisoned client.
+      client.release(err as Error);
     }
     throw err;
-  } finally {
-    client.release();
   }
 }

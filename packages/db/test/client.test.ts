@@ -32,9 +32,21 @@ describe("withTenant", () => {
   });
 
   it("clears app.tenant_id after the transaction (SET LOCAL semantics)", async () => {
-    await withTenant(pool, tenantId, async () => undefined);
-    const res = await pool.query("SELECT current_setting('app.tenant_id', true) AS t");
-    expect(res.rows[0].t === null || res.rows[0].t === "").toBe(true);
+    const txPid = await withTenant(pool, tenantId, async (_db, client) => {
+      const res = await client.query("SELECT pg_backend_pid() AS pid");
+      return res.rows[0].pid as number;
+    });
+
+    const client = await pool.connect();
+    try {
+      const res = await client.query(
+        "SELECT pg_backend_pid() AS pid, current_setting('app.tenant_id', true) AS t",
+      );
+      expect(res.rows[0].pid).toBe(txPid); // same physical connection, or this test proves nothing
+      expect(res.rows[0].t === null || res.rows[0].t === "").toBe(true);
+    } finally {
+      client.release();
+    }
   });
 
   it("rolls back the transaction when the callback throws", async () => {
