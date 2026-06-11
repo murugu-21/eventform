@@ -8,6 +8,9 @@ export function createPool(connectionString: string): Pool {
   return new Pool({ connectionString, max: 10 });
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Run `fn` inside a transaction with `app.tenant_id` set via set_config(...,
  * is_local = true), so RLS policies scope every query to the tenant and the
@@ -18,6 +21,11 @@ export async function withTenant<T>(
   tenantId: string,
   fn: (db: Db, client: PoolClient) => Promise<T>,
 ): Promise<T> {
+  if (!UUID_RE.test(tenantId)) {
+    throw new Error(
+      `withTenant: tenantId must be a UUID, got ${JSON.stringify(tenantId)}`,
+    );
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

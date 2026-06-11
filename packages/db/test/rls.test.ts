@@ -126,6 +126,23 @@ describe("row-level security", () => {
     expect(res.rowCount).toBe(1);
   });
 
+  it("hides other tenants' published forms from tenant-scoped sessions", async () => {
+    const slug = `rls-pub-leak-${randomUUID()}`;
+    await withTenant(apiPool, tenantA, (db) =>
+      db.insert(forms).values({
+        tenantId: tenantA,
+        title: "published A",
+        status: "published",
+        publicSlug: slug,
+      }),
+    );
+
+    const seenByB = await withTenant(apiPool, tenantB, (db) =>
+      db.select().from(forms).where(eq(forms.publicSlug, slug)),
+    );
+    expect(seenByB).toHaveLength(0);
+  });
+
   it("has RLS enabled with a tenant_isolation policy on all tenant-scoped tables", async () => {
     const TENANT_TABLES = [
       "forms",

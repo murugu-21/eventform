@@ -58,15 +58,20 @@ CREATE POLICY tenant_isolation ON delivery_attempts
   USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 
--- Anonymous read of published forms (public submission path) -------------
+-- Anonymous-only read of published forms (public submission path) ----------
+-- These policies fire only when app.tenant_id is NOT set (anonymous sessions).
+-- Tenant-scoped sessions already see exactly their own rows via tenant_isolation;
+-- these permissive policies must NOT apply there or they would leak other tenants'
+-- published forms through Postgres's OR-of-permissive-policies evaluation.
 CREATE POLICY forms_public_read ON forms
   FOR SELECT
-  USING (status = 'published');
+  USING (status = 'published' AND NULLIF(current_setting('app.tenant_id', true), '') IS NULL);
 
 CREATE POLICY form_fields_public_read ON form_fields
   FOR SELECT
   USING (
-    EXISTS (
+    NULLIF(current_setting('app.tenant_id', true), '') IS NULL
+    AND EXISTS (
       SELECT 1 FROM forms f
       WHERE f.id = form_fields.form_id AND f.status = 'published'
     )

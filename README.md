@@ -17,6 +17,7 @@ Prereqs: Node ≥ 22, pnpm, Docker.
 
 ```bash
 pnpm install
+pnpm build        # compile workspace packages (dist/ consumed by dependants)
 cp .env.example .env
 pnpm db:up        # postgres 16 (wal_level=logical) + localstack kms
 pnpm db:migrate   # tables, roles, RLS policies

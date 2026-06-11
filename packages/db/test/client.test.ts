@@ -69,4 +69,8 @@ describe("withTenant", () => {
     const result = await withTenant(pool, tenantId, async () => 42);
     expect(result).toBe(42);
   });
+
+  it("throws immediately when tenantId is not a UUID", async () => {
+    await expect(withTenant(pool, "", async () => 0)).rejects.toThrow(/must be a UUID/);
+  });
 });
