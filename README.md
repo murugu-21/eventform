@@ -110,7 +110,7 @@ so multiple worker replicas never race on the same row.
 **Prerequisites:** Node >= 22, pnpm, Docker.
 
 ```bash
-git clone https://github.com/murugu21/eventform
+git clone https://github.com/murugu-21/eventform
 cd eventform
 pnpm install
 pnpm build

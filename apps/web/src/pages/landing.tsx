@@ -96,7 +96,7 @@ export default function LandingPage() {
           <Button
             size="lg"
             variant="outline"
-            onClick={() => window.open("https://github.com/murugu21/eventform", "_blank", "noreferrer")}
+            onClick={() => window.open("https://github.com/murugu-21/eventform", "_blank", "noreferrer")}
           >
             View on GitHub
           </Button>

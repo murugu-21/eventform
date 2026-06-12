@@ -361,7 +361,7 @@ CMD ["node", "dist/main.js"]
 
 - [ ] **Step 1: ci.yml** — on push/PR to main + phase branches: checkout, pnpm/node setup (cache), install frozen, `pnpm build`, boot the dev compose services (postgres localstack kafka connect — `docker compose -f infra/compose/docker-compose.yml up -d --wait`), `pnpm connect:register`, `pnpm test` (the full 133-test integration suite is the point of having it), upload junit/log artifacts on failure. Playwright smoke: separate job, `continue-on-error: true` initially (needs api+worker+web orchestration: build, start both from dist in background, `playwright install chromium`, run) — promote to required later.
 
-- [ ] **Step 2: deploy.yml** — `workflow_dispatch` + push tags `v*`: build & push 3 images to GHCR (`docker/build-push-action`, tags latest+sha; caddy image needs VITE_* build args from repo variables), then ssh (appleboy/ssh-action with `secrets.VPS_HOST/VPS_SSH_KEY`) → `cd /opt/eventform && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`. NOTE: prod compose must reference `image:` (ghcr.io/...) with `build:` as dev-only fallback — adjust compose accordingly (`image: ghcr.io/${GITHUB_REPOSITORY:-murugu21/eventform}-api:latest` pattern + build key kept for local). Gate the job on secrets being configured (`if: ${{ secrets.VPS_HOST != '' }}` via env indirection — document the GitHub limitation honestly if a workaround is needed).
+- [ ] **Step 2: deploy.yml** — `workflow_dispatch` + push tags `v*`: build & push 3 images to GHCR (`docker/build-push-action`, tags latest+sha; caddy image needs VITE_* build args from repo variables), then ssh (appleboy/ssh-action with `secrets.VPS_HOST/VPS_SSH_KEY`) → `cd /opt/eventform && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`. NOTE: prod compose must reference `image:` (ghcr.io/...) with `build:` as dev-only fallback — adjust compose accordingly (`image: ghcr.io/${GITHUB_REPOSITORY:-murugu-21/eventform}-api:latest` pattern + build key kept for local). Gate the job on secrets being configured (`if: ${{ secrets.VPS_HOST != '' }}` via env indirection — document the GitHub limitation honestly if a workaround is needed).
 
 - [ ] **Step 3:** Validate YAML (`actionlint` via pnpm dlx if available, else careful review). CI can't be fully proven without pushing — note it.
 
@@ -396,7 +396,7 @@ ComputeStack was ever written. DEPLOYMENT.md reflects the VPS path.
 
 **Migrate-image mechanism:** Migrations are packaged as a dedicated `migrate` service in the
 prod compose (`packages/db/Dockerfile.migrate`), referencing
-`ghcr.io/murugu21/eventform-migrate:latest`. They run via
+`ghcr.io/murugu-21/eventform-migrate:latest`. They run via
 `docker compose run --rm migrate` (profile `setup`). This was simpler and more reliable than
 running migrations inside the API container on startup.
 

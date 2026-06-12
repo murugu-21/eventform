@@ -44,7 +44,7 @@ services:
       # KMS_KEY_MATERIAL_FILE must be an absolute path on the host (or relative to the compose file dir).
       # Deliberately REQUIRED (no fallback): the committed dev-key-material.b64 is public on GitHub —
       # silently defaulting to it in prod would encrypt real secrets under publicly known key material.
-      - ${KMS_KEY_MATERIAL_FILE:?run infra/prod/bootstrap.sh to generate host key material first — never the committed dev material}:/etc/eventform/kms-key-material.b64:ro
+      - ${KMS_KEY_MATERIAL_FILE:?run infra/prod/gen-kms-material.sh first — never the committed dev material}:/etc/eventform/kms-key-material.b64:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "awslocal kms describe-key --key-id alias/eventform-endpoint-secrets --query KeyMetadata.KeyState --output text | grep -q Enabled"]
@@ -127,7 +127,7 @@ services:
       '
 
   api:
-    image: ghcr.io/murugu21/eventform-api:latest
+    image: ghcr.io/murugu-21/eventform-api:latest
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
@@ -159,7 +159,7 @@ services:
       start_period: 15s
 
   worker:
-    image: ghcr.io/murugu21/eventform-worker:latest
+    image: ghcr.io/murugu-21/eventform-worker:latest
     build:
       context: ../..
       dockerfile: apps/worker/Dockerfile
@@ -186,7 +186,7 @@ services:
   migrate:
     # One-shot migration runner. Run with: docker compose -f docker-compose.prod.yml run --rm migrate
     # Or use profile: docker compose -f docker-compose.prod.yml --profile setup up migrate
-    image: ghcr.io/murugu21/eventform-migrate:latest
+    image: ghcr.io/murugu-21/eventform-migrate:latest
     build:
       context: ../..
       dockerfile: packages/db/Dockerfile.migrate
@@ -199,7 +199,7 @@ services:
       DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
 
   caddy:
-    image: ghcr.io/murugu21/eventform-caddy:latest
+    image: ghcr.io/murugu-21/eventform-caddy:latest
     build:
       context: ../..
       dockerfile: infra/caddy/Dockerfile

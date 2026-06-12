@@ -109,7 +109,7 @@ runcmd:
   - systemctl enable --now docker
   - usermod -aG docker ubuntu
   - mkdir -p /opt/eventform
-  - git clone https://github.com/murugu21/eventform /opt/eventform
+  - git clone https://github.com/murugu-21/eventform /opt/eventform
   - chown -R ubuntu:ubuntu /opt/eventform
 ```
 
