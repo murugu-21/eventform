@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
 
@@ -49,10 +50,36 @@ export class AuthStack extends cdk.Stack {
       },
     });
 
-    // Hosted domain (Cognito-managed domain)
+    // Hosted domain (Cognito-managed domain) — kept alongside the custom
+    // domain as a fallback; a pool may have one of each.
     const domain = userPool.addDomain("HostedDomain", {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix },
     });
+
+    // Optional branded custom domain (e.g. auth.murugappan.dev). Requires an
+    // ISSUED ACM cert in us-east-1 and an existing A record on the parent
+    // domain. Pass: -c customAuthDomain=auth.murugappan.dev -c authCertArn=arn:...
+    const customAuthDomain = this.node.tryGetContext("customAuthDomain") as string | undefined;
+    const authCertArn = this.node.tryGetContext("authCertArn") as string | undefined;
+    if (customAuthDomain && authCertArn) {
+      const customDomain = userPool.addDomain("CustomDomain", {
+        customDomain: {
+          domainName: customAuthDomain,
+          certificate: acm.Certificate.fromCertificateArn(this, "AuthCert", authCertArn),
+        },
+      });
+      // CNAME target for the DNS record (CloudFront distribution behind the
+      // custom domain) — exposed via CloudFormation GetAtt, no extra resources.
+      const cfnDomain = customDomain.node.defaultChild as cognito.CfnUserPoolDomain;
+      new cdk.CfnOutput(this, "CustomDomainTarget", {
+        value: cfnDomain.getAtt("CloudFrontDistribution").toString(),
+        description: `Point a DNS-only CNAME for ${customAuthDomain} at this target`,
+      });
+      new cdk.CfnOutput(this, "CustomDomainUrl", {
+        value: `https://${customAuthDomain}`,
+        description: "Branded hosted UI base URL (use as VITE_COGNITO_DOMAIN)",
+      });
+    }
 
     // App client — authorization-code grant + PKCE, NO client secret
     const appClient = new cognito.UserPoolClient(this, "AppClient", {

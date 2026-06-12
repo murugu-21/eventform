@@ -76,4 +76,32 @@ describe("AuthStack", () => {
       Domain: "eventform-auth",
     });
   });
+
+  it("adds a custom domain (with cert) only when context is provided", () => {
+    // without context: exactly one domain (the prefix one)
+    Template.fromStack(makeStack()).resourceCountIs("AWS::Cognito::UserPoolDomain", 1);
+
+    // with context: prefix + custom domain with the ACM cert attached
+    const app = new cdk.App({
+      context: {
+        googleClientId: "dummy-client-id",
+        googleClientSecret: "dummy-client-secret",
+        cognitoDomainPrefix: "eventform-auth",
+        customAuthDomain: "auth.murugappan.dev",
+        authCertArn:
+          "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
+      },
+    });
+    const stack = new AuthStack(app, "AuthStack", {
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    const template = Template.fromStack(stack);
+    template.resourceCountIs("AWS::Cognito::UserPoolDomain", 2);
+    template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {
+      Domain: "auth.murugappan.dev",
+      CustomDomainConfig: {
+        CertificateArn: Match.stringLikeRegexp("certificate/00000000"),
+      },
+    });
+  });
 });
