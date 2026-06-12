@@ -116,7 +116,7 @@ pnpm install
 pnpm build
 cp .env.example .env
 
-pnpm db:up            # postgres + localstack (KMS) + kafka + kafka-connect
+pnpm db:up            # postgres + localstack (KMS) + redpanda (kafka api) + kafka-connect
 pnpm db:migrate       # apply all Drizzle migrations (tables, roles, RLS)
 pnpm connect:register # register the Debezium outbox connector
 
