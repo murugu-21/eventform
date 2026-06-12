@@ -148,16 +148,26 @@ Edit `.env` with the following variables. All are required unless marked optiona
 > *before* their passwords can be rotated (the migration creates them). Run
 > 5b → 5h in order; each step is idempotent and safe to re-run.
 
-### 5b. Generate KMS key material (before anything starts)
+### 5b. Restore KMS key material from SSM (before anything starts)
+
+The key material's durable source of truth is **AWS SSM Parameter Store**
+(`/eventform/kms-key-material`, SecureString — standard tier, free). The VPS
+needs only the file; no AWS credentials live on the box.
+
+On your **laptop** (with the AWS profile), then copy to the VPS:
 
 ```bash
-export KMS_KEY_MATERIAL_FILE=/etc/eventform/kms-material.b64
-bash /opt/eventform/infra/prod/gen-kms-material.sh
+export AWS_PROFILE=eventform
+KMS_KEY_MATERIAL_FILE=/tmp/kms-material.b64 bash infra/prod/gen-kms-material.sh
+scp /tmp/kms-material.b64 ubuntu@<VPS_IP>:/tmp/
+ssh ubuntu@<VPS_IP> 'sudo mkdir -p /etc/eventform && sudo mv /tmp/kms-material.b64 /etc/eventform/ && sudo chmod 600 /etc/eventform/kms-material.b64'
+rm /tmp/kms-material.b64
 ```
 
-Creates an AES-256 key material file (mode 600) if missing. **Back this file
-up** — losing it makes all encrypted endpoint secrets irrecoverable. Idempotent:
-re-running leaves an existing file untouched.
+The script is idempotent and self-healing: it restores from SSM when the
+parameter exists, backs a local file up into SSM when it doesn't, generates
+fresh material only when neither exists, and refuses to proceed if the local
+file and SSM ever diverge (overwriting either side could orphan ciphertexts).
 
 ### 5c. Start the infra tier
 
