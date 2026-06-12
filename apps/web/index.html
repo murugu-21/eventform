@@ -7,6 +7,16 @@
     <title>Eventform</title>
   </head>
   <body>
+    <script>
+      // Apply the saved/system theme before first paint to avoid a light flash.
+      (function () {
+        var t = localStorage.getItem("eventform.theme") || "system";
+        var dark =
+          t === "dark" ||
+          (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

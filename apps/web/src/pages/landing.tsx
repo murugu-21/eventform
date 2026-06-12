@@ -2,6 +2,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { ModeToggle } from "@/components/mode-toggle";
 
 // ── Architecture flow node ────────────────────────────────────────────────────
 function FlowNode({ label, sub }: { label: string; sub?: string }) {
@@ -71,6 +72,9 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <div className="absolute right-4 top-4">
+        <ModeToggle />
+      </div>
       {/* ── Hero ──────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col items-center justify-center px-6 py-24 text-center gap-6">
         <Badge variant="outline" className="text-xs tracking-wide uppercase">

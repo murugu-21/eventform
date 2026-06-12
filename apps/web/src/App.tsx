@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, RequireAuth } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme";
 
 // Pages
 import LandingPage from "@/pages/landing";
@@ -26,6 +27,7 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
@@ -59,5 +61,6 @@ export default function App() {
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 }

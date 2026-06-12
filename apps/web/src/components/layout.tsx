@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { ModeToggle } from "@/components/mode-toggle";
 
 const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/app", label: "Dashboard", end: true },
@@ -50,6 +51,7 @@ export default function Layout() {
               {me.name}
             </span>
           )}
+          <ModeToggle />
           <Button variant="outline" size="sm" onClick={signOut}>
             Sign out
           </Button>
