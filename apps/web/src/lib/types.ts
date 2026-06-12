@@ -58,7 +58,8 @@ export interface Delivery {
   id: string;
   endpointId: string;
   endpointName: string;
-  submissionId: string;
+  /** The webhook payload as last emitted — opaque to the delivery machinery. */
+  payload: Record<string, unknown>;
   status: DeliveryStatus;
   attemptCount: number;
   nextRetryAt: string | null;
@@ -79,6 +80,4 @@ export interface DeliveryAttempt {
 
 export interface DeliveryDetail extends Delivery {
   attempts: DeliveryAttempt[];
-  /** The webhook payload as sent to the endpoint (reconstructed server-side). */
-  payload: Record<string, unknown>;
 }

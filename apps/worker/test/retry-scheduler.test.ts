@@ -16,22 +16,24 @@ describe("RetryScheduler", () => {
   let scheduler: RetryScheduler;
   const tenantId = randomUUID();
 
+  // No forms/submissions fixtures needed: the scheduler re-emits from the
+  // payload stored on the delivery row and never joins producer tables.
   async function seedRetrying(opts: { dueInMs: number; attemptCount?: number }) {
-    const formId = randomUUID(); const endpointId = randomUUID();
+    const endpointId = randomUUID();
     const submissionId = randomUUID(); const deliveryId = randomUUID();
-    await admin.query(
-      "INSERT INTO forms (id, tenant_id, title, status, public_slug) VALUES ($1,$2,'Sched','published',$3)",
-      [formId, tenantId, `sched-${randomUUID()}`]);
+    const attemptCount = opts.attemptCount ?? 1;
     await admin.query(
       "INSERT INTO endpoints (id, tenant_id, name, url, secret_ciphertext) VALUES ($1,$2,'ep','https://example.com/h','ct')",
       [endpointId, tenantId]);
+    const payload = {
+      eventId: randomUUID(), type: "submission.received", attempt: attemptCount,
+      tenantId, formId: randomUUID(), formTitle: "Sched", submissionId, endpointId,
+      deliveryId, answers: { Q: "s" }, submittedAt: new Date().toISOString(),
+    };
     await admin.query(
-      "INSERT INTO submissions (id, form_id, tenant_id, answers) VALUES ($1,$2,$3,'{\"Q\":\"s\"}'::jsonb)",
-      [submissionId, formId, tenantId]);
-    await admin.query(
-      `INSERT INTO deliveries (id, tenant_id, endpoint_id, submission_id, event_id, status, attempt_count, next_retry_at)
+      `INSERT INTO deliveries (id, tenant_id, endpoint_id, payload, event_id, status, attempt_count, next_retry_at)
        VALUES ($1,$2,$3,$4,$5,'retrying',$6, now() + ($7 || ' milliseconds')::interval)`,
-      [deliveryId, tenantId, endpointId, submissionId, randomUUID(), opts.attemptCount ?? 1, String(opts.dueInMs)]);
+      [deliveryId, tenantId, endpointId, JSON.stringify(payload), payload.eventId, attemptCount, String(opts.dueInMs)]);
     return { deliveryId, submissionId };
   }
 

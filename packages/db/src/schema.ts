@@ -93,7 +93,13 @@ export const deliveries = pgTable("deliveries", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   endpointId: uuid("endpoint_id").notNull().references(() => endpoints.id),
-  submissionId: uuid("submission_id").notNull().references(() => submissions.id),
+  /**
+   * The event body as last emitted, supplied by the producer at creation.
+   * Opaque to the delivery machinery except for the envelope fields it owns
+   * (eventId, attempt), which it rewrites on every re-emit. This is what keeps
+   * the pipeline domain-agnostic: no joins back into producer tables.
+   */
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   eventId: uuid("event_id").notNull(),
   status: deliveryStatus("status").notNull().default("pending"),
   attemptCount: integer("attempt_count").notNull().default(0),

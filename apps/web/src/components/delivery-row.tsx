@@ -206,7 +206,10 @@ export function DeliveryRow({
     },
   });
 
-  const shortId = delivery.submissionId.slice(0, 8);
+  // The submission id lives inside the (machinery-opaque) payload; the web
+  // app is the domain-aware side, so extracting it here is fair game.
+  const submissionId = String(delivery.payload.submissionId ?? "");
+  const shortId = submissionId.slice(0, 8);
   const stripe = index % 2 === 0 ? "" : "bg-muted/20";
 
   return (
@@ -238,7 +241,7 @@ export function DeliveryRow({
         <td className="px-4 py-3">
           <span
             className="font-mono text-xs text-muted-foreground"
-            title={delivery.submissionId}
+            title={submissionId}
           >
             {shortId}…
           </span>

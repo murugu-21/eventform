@@ -2,16 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
 import { and, asc, desc, eq, SQL } from "drizzle-orm";
-import {
-  deliveries,
-  deliveryAttempts,
-  endpoints,
-  forms,
-  outbox,
-  submissions,
-  withTenant,
-} from "@eventform/db";
-import type { SubmissionReceivedEvent } from "@eventform/shared";
+import { deliveries, deliveryAttempts, endpoints, outbox, withTenant } from "@eventform/db";
 import { API_POOL } from "../db/db.module";
 import { ListDeliveriesQuery } from "./deliveries.schemas";
 
@@ -33,7 +24,7 @@ export class DeliveriesService {
           id: deliveries.id,
           endpointId: deliveries.endpointId,
           endpointName: endpoints.name,
-          submissionId: deliveries.submissionId,
+          payload: deliveries.payload,
           status: deliveries.status,
           attemptCount: deliveries.attemptCount,
           nextRetryAt: deliveries.nextRetryAt,
@@ -62,29 +53,10 @@ export class DeliveriesService {
         .from(deliveryAttempts)
         .where(eq(deliveryAttempts.deliveryId, id))
         .orderBy(asc(deliveryAttempts.attemptNo));
-
-      // The webhook payload, reconstructed from durable rows the same way the
-      // retry path builds it (outbox rows are pruned, so they can't serve
-      // historical reads). `attempt` reflects the last attempt actually sent.
-      const [submission] = await db
-        .select()
-        .from(submissions)
-        .where(eq(submissions.id, delivery.submissionId));
-      const [form] = await db.select().from(forms).where(eq(forms.id, submission.formId));
-      const payload: SubmissionReceivedEvent = {
-        eventId: delivery.eventId,
-        type: "submission.received",
-        attempt: Math.max(delivery.attemptCount, 1),
-        tenantId,
-        formId: form.id,
-        formTitle: form.title,
-        submissionId: submission.id,
-        endpointId: delivery.endpointId,
-        deliveryId: delivery.id,
-        answers: submission.answers,
-        submittedAt: submission.submittedAt.toISOString(),
-      };
-      return { ...delivery, attempts, payload };
+      // delivery.payload is the event body as last emitted — durable on the
+      // row itself (outbox rows are pruned, so they can't serve historical
+      // reads), so no joins back into producer tables are needed.
+      return { ...delivery, attempts };
     });
   }
 
@@ -103,31 +75,17 @@ export class DeliveriesService {
         throw new ConflictException("only failed deliveries can be retried");
       }
 
-      const [submission] = await db
-        .select()
-        .from(submissions)
-        .where(eq(submissions.id, delivery.submissionId));
-      const [form] = await db.select().from(forms).where(eq(forms.id, submission.formId));
+      // Re-emit from the stored payload. The machinery only rewrites the
+      // envelope fields it owns (eventId, attempt); the body stays whatever
+      // the producer originally supplied.
       const eventId = randomUUID();
-      const payload: SubmissionReceivedEvent = {
-        eventId,
-        type: "submission.received",
-        attempt: 1,
-        tenantId,
-        formId: form.id,
-        formTitle: form.title,
-        submissionId: submission.id,
-        endpointId: delivery.endpointId,
-        deliveryId: delivery.id,
-        answers: submission.answers,
-        submittedAt: submission.submittedAt.toISOString(),
-      };
+      const payload = { ...delivery.payload, eventId, attempt: 1 };
       await db.insert(outbox).values({
         id: eventId,
         tenantId,
         aggregateType: "delivery",
         aggregateId: delivery.id,
-        eventType: "submission.received",
+        eventType: String(delivery.payload.type ?? "unknown"),
         payload,
       });
       const [updated] = await db
@@ -135,6 +93,7 @@ export class DeliveriesService {
         .set({
           status: "pending",
           attemptCount: 0,
+          payload,
           eventId,
           nextRetryAt: null,
           lastError: null,

@@ -102,7 +102,7 @@ export class PublicService {
           id: deliveryId,
           tenantId: form.tenantId,
           endpointId: endpoint.id,
-          submissionId: submission.id,
+          payload,
           eventId,
         });
         await db.insert(outbox).values({

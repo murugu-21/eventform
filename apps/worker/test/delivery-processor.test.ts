@@ -35,20 +35,8 @@ describe("DeliveryProcessor", () => {
     const ciphertext = await cipher.encrypt(secret, tenantId);
 
     await admin.query(
-      "INSERT INTO forms (id, tenant_id, title, status, public_slug) VALUES ($1,$2,'Proc form','published',$3)",
-      [formId, tenantId, `proc-${randomUUID()}`],
-    );
-    await admin.query(
       "INSERT INTO endpoints (id, tenant_id, name, url, secret_ciphertext) VALUES ($1,$2,'ep',$3,$4)",
       [endpointId, tenantId, opts.url ?? server.url, ciphertext],
-    );
-    await admin.query(
-      "INSERT INTO submissions (id, form_id, tenant_id, answers) VALUES ($1,$2,$3,'{\"Q\":\"A\"}'::jsonb)",
-      [submissionId, formId, tenantId],
-    );
-    await admin.query(
-      "INSERT INTO deliveries (id, tenant_id, endpoint_id, submission_id, event_id) VALUES ($1,$2,$3,$4,$5)",
-      [deliveryId, tenantId, endpointId, submissionId, eventId],
     );
     const event: SubmissionReceivedEvent = {
       eventId,
@@ -63,6 +51,12 @@ describe("DeliveryProcessor", () => {
       answers: { Q: "A" },
       submittedAt: new Date().toISOString(),
     };
+    // The processor never touches forms/submissions — the delivery row plus
+    // its stored payload is the whole fixture.
+    await admin.query(
+      "INSERT INTO deliveries (id, tenant_id, endpoint_id, payload, event_id) VALUES ($1,$2,$3,$4,$5)",
+      [deliveryId, tenantId, endpointId, JSON.stringify(event), eventId],
+    );
     return { event, deliveryId, eventId, secret };
   }
 
