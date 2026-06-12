@@ -19,7 +19,7 @@ export class BackupStack extends cdk.Stack {
     super(scope, id, props);
 
     const bucket = new s3.Bucket(this, "BackupBucket", {
-      bucketName: `eventform-backups-${this.account}`,
+      bucketName: `eventform-backups-${this.account}-${this.region}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: true,

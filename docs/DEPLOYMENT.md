@@ -139,7 +139,7 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
 | `ACME_EMAIL` | Email for Let's Encrypt registration | `you@example.com` |
-| `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919` (deployed value) |
+| `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
 | `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
 | `WEB_HOST` | *(optional)* Web hostname; default `eventform.murugappan.dev` | |
 | `API_HOST` | *(optional)* API hostname; default `eventform-api.murugappan.dev` | |
