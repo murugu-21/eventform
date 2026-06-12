@@ -46,7 +46,7 @@ function ThankYou() {
             to="/"
             className="text-primary underline underline-offset-2 hover:opacity-80"
           >
-            eventform
+            EventForm
           </Link>
         </p>
       </Card>
@@ -256,7 +256,7 @@ function FormView({ form }: { form: PublicForm }) {
             to="/"
             className="text-primary underline underline-offset-2 hover:opacity-80"
           >
-            eventform
+            EventForm
           </Link>
         </p>
       </Card>

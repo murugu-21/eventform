@@ -59,7 +59,7 @@ function fmtDate(iso: string) {
 const VERIFY_SNIPPET = `// Node.js receiver-side signature verification
 import crypto from "node:crypto";
 
-function verifyEventformSignature(
+function verifyEventFormSignature(
   rawBody: string,        // raw request body — before JSON.parse
   signature: string,     // X-Eventform-Signature header value
   timestamp: string,     // X-Eventform-Timestamp header value (Unix seconds)

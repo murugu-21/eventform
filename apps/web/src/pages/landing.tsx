@@ -220,7 +220,7 @@ export default function LandingPage() {
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
       <footer className="border-t border-border px-6 py-6 text-center text-xs text-muted-foreground">
-        eventform · MIT license
+        EventForm · MIT license
       </footer>
     </div>
   );

@@ -24,7 +24,7 @@ export default function Layout() {
       {/* Top nav */}
       <header className="flex items-center gap-4 border-b px-6 py-3">
         <Link to="/app" className="font-semibold text-lg mr-2">
-          Eventform
+          EventForm
         </Link>
         <Separator orientation="vertical" className="h-5" />
         <nav className="flex gap-2">

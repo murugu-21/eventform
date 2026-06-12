@@ -30,7 +30,7 @@ export default function LoginPage() {
       <div className="flex min-h-screen items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Sign in to Eventform</CardTitle>
+            <CardTitle>Sign in to EventForm</CardTitle>
             <CardDescription>
               Sign in with your Google account to continue.
             </CardDescription>
@@ -47,7 +47,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Sign in to Eventform</CardTitle>
+          <CardTitle>Sign in to EventForm</CardTitle>
           <CardDescription>
             Dev sign-in — enter any handle to get started.{" "}
             Google sign-in via Cognito is used in production builds.
