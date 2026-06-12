@@ -108,7 +108,7 @@ export default function DeliveriesPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto flex flex-col gap-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">Deliveries</h1>

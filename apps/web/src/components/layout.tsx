@@ -22,20 +22,22 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Top nav */}
-      <header className="flex items-center gap-4 border-b px-6 py-3">
+      {/* Top nav. On mobile the nav drops to its own full-width row
+          (order-last + w-full) and scrolls horizontally if it must;
+          on sm+ everything sits on one row as before. */}
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 sm:px-6 py-3">
         <Link to="/app" className="font-semibold text-lg mr-2">
           EventForm
         </Link>
-        <Separator orientation="vertical" className="h-5" />
-        <nav className="flex gap-2">
+        <Separator orientation="vertical" className="h-5 hidden sm:block" />
+        <nav className="order-last w-full -mx-1 px-1 sm:order-none sm:w-auto sm:mx-0 sm:px-0 flex gap-2 overflow-x-auto">
           {NAV_LINKS.map(({ to, label, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
               className={({ isActive }) =>
-                `text-sm px-3 py-1.5 rounded-md transition-colors ${
+                `text-sm px-3 py-1.5 rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   isActive
                     ? "bg-accent text-accent-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -46,9 +48,9 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3 min-w-0">
           {me && (
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-muted-foreground truncate max-w-32 hidden sm:inline">
               {me.name}
             </span>
           )}

@@ -124,7 +124,7 @@ export default function SubmissionsPage() {
   const cols = deriveColumns(form, submissions ?? []);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto flex flex-col gap-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-start gap-4 flex-wrap">
         <div className="flex flex-col gap-1 flex-1 min-w-0">

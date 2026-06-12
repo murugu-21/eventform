@@ -604,7 +604,7 @@ export default function FormBuilderPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto flex flex-col gap-6">
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto flex flex-col gap-6">
       {/* Back link */}
       <Link
         to="/app"
