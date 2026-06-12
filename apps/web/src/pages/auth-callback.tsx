@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { exchangeCode } from "@/lib/pkce";
 import type { CognitoConfig } from "@/lib/pkce";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { displayNameFromIdToken } from "@/lib/jwt";
 
 function getCognitoCfg(): CognitoConfig {
@@ -40,6 +41,7 @@ export function clearTokens(): void {
 
 export default function AuthCallbackPage() {
   const navigate = useNavigate();
+  const { completeSignIn } = useAuth();
   const ran = useRef(false);
 
   useEffect(() => {
@@ -73,6 +75,9 @@ export default function AuthCallbackPage() {
         if (displayName) {
           await api.updateMe(displayName).catch(() => undefined);
         }
+        // Re-sync the auth context BEFORE navigating — RequireAuth otherwise
+        // still holds the at-mount null sub and bounces back to /login.
+        completeSignIn();
         void navigate("/app", { replace: true });
       } catch {
         void navigate("/login", { replace: true });
@@ -80,7 +85,7 @@ export default function AuthCallbackPage() {
     }
 
     void handleCallback();
-  }, [navigate]);
+  }, [navigate, completeSignIn]);
 
   return (
     <div className="flex min-h-screen items-center justify-center">

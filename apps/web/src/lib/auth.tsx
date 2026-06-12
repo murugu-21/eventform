@@ -22,6 +22,8 @@ interface AuthContextValue {
   sub: string | null;
   signIn: (sub?: string) => void | Promise<void>;
   signOut: () => void;
+  /** Re-sync auth state from storage after the OAuth callback stores tokens. */
+  completeSignIn: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -74,12 +76,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Expose a way for the callback page to update sub after token exchange
-  // by watching localStorage (simple approach — re-read on focus)
-  // In practice, auth-callback navigates to /app and the component re-mounts.
+  // AuthProvider does NOT remount on client-side navigation, so the OAuth
+  // callback must explicitly re-sync state after storing tokens — otherwise
+  // RequireAuth still sees the at-mount null and bounces to /login.
+  function completeSignIn() {
+    if (AUTH_MODE === "cognito") {
+      setSub(getAccessToken() ? "__cognito__" : null);
+    } else {
+      setSub(getDevSub());
+    }
+  }
 
   return (
-    <AuthContext.Provider value={{ sub, signIn, signOut }}>
+    <AuthContext.Provider value={{ sub, signIn, signOut, completeSignIn }}>
       {children}
     </AuthContext.Provider>
   );
