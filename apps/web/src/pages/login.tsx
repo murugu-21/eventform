@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GoogleSignInButton } from "@/components/google-signin-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth, AUTH_MODE } from "@/lib/auth";
 
@@ -35,13 +36,7 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              type="button"
-              className="w-full"
-              onClick={() => signIn()}
-            >
-              Continue with Google
-            </Button>
+            <GoogleSignInButton onClick={() => void signIn()} />
           </CardContent>
         </Card>
       </div>
