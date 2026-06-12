@@ -7,6 +7,9 @@
 #   COGNITO_ISSUER           https://cognito-idp.<region>.amazonaws.com/<poolId>
 #   COGNITO_CLIENT_ID        Cognito app client id
 #   ACME_EMAIL               email for ACME/Let's Encrypt certificate registration
+#   BACKUP_S3_BUCKET         from BackupStack output (eventform-backups-<account>)
+#   BACKUP_AWS_ACCESS_KEY_ID / BACKUP_AWS_SECRET_ACCESS_KEY
+#                            access key for the eventform-backup IAM user (PutObject-only)
 #
 # Optional overrides (have defaults):
 #   WEB_HOST                 default: eventform.murugappan.dev
@@ -197,6 +200,27 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+
+  backup:
+    # Nightly pg_dump to the append-only S3 bucket (BackupStack). The ONLY
+    # real AWS credential on the box — scoped to s3:PutObject on one prefix.
+    image: ghcr.io/murugu-21/eventform-backup:latest
+    build:
+      context: ../..
+      dockerfile: infra/backup/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: eventform
+      PGPASSWORD: ${DB_ADMIN_PASSWORD}
+      PGDATABASE: eventform
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
 
   caddy:
     image: ghcr.io/murugu-21/eventform-caddy:latest

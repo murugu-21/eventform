@@ -139,6 +139,8 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
 | `ACME_EMAIL` | Email for Let's Encrypt registration | `you@example.com` |
+| `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919` (deployed value) |
+| `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
 | `WEB_HOST` | *(optional)* Web hostname; default `eventform.murugappan.dev` | |
 | `API_HOST` | *(optional)* API hostname; default `eventform-api.murugappan.dev` | |
 | `AWS_REGION` | *(optional)* AWS region; default `us-east-1` | |
@@ -312,6 +314,30 @@ After the first deploy, verify the following manually:
 | AWS KMS | $0 | LocalStack runs on VPS — no AWS KMS API calls |
 | Domain | already owned | |
 | **Total** | **~€4–6/mo** | |
+
+### Backups (automatic, append-only)
+
+The `backup` service runs `pg_dump -Fc | gzip` on boot and every 24 h,
+uploading to the BackupStack bucket (`eventform-backups-<account>`). The
+bucket is versioned with PutObject-only credentials, so a compromised VPS
+cannot read or destroy backup history; lifecycle expires dumps after 30 days.
+
+One-time setup — create the access key YOURSELF (keeps the secret out of
+CloudFormation outputs and any chat/transcript):
+
+```bash
+AWS_PROFILE=eventform aws iam create-access-key --user-name eventform-backup
+```
+
+Put the two values into the VPS `.env` as `BACKUP_AWS_ACCESS_KEY_ID` /
+`BACKUP_AWS_SECRET_ACCESS_KEY`.
+
+Restore drill (run anywhere with admin credentials):
+
+```bash
+aws s3 cp s3://eventform-backups-<account>/pg/<latest>.dump.gz - | gunzip > /tmp/ef.dump
+pg_restore --clean --if-exists -d "$DATABASE_URL" /tmp/ef.dump
+```
 
 ### Teardown
 

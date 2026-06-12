@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { AuthStack } from "../lib/auth-stack";
+import { BackupStack } from "../lib/backup-stack";
 import { CertStack } from "../lib/cert-stack";
 import { KmsStack } from "../lib/kms-stack";
 
@@ -41,4 +42,10 @@ new KmsStack(app, "KmsStack", {
     region: process.env.CDK_DEFAULT_REGION ?? "us-east-1",
   },
   description: "Eventform KMS key (EXTERNAL origin) for LocalStack",
+});
+
+// BackupStack — append-only S3 target for nightly pg_dump uploads from the VPS.
+new BackupStack(app, "BackupStack", {
+  env,
+  description: "EventForm append-only Postgres backup bucket",
 });
