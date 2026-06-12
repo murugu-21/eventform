@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { exchangeCode } from "@/lib/pkce";
 import type { CognitoConfig } from "@/lib/pkce";
+import { api } from "@/lib/api";
+import { displayNameFromIdToken } from "@/lib/jwt";
 
 function getCognitoCfg(): CognitoConfig {
   return {
@@ -64,6 +66,13 @@ export default function AuthCallbackPage() {
       try {
         const tokens = await exchangeCode(getCognitoCfg(), code, verifier);
         storeTokens(tokens.access_token, tokens.refresh_token);
+        // The access token only carries the sub (a UUID); the user's display
+        // name lives in the ID token. Persist it so the header shows a name
+        // instead of the Cognito sub. Best-effort — sign-in must not fail on it.
+        const displayName = displayNameFromIdToken(tokens.id_token);
+        if (displayName) {
+          await api.updateMe(displayName).catch(() => undefined);
+        }
         void navigate("/app", { replace: true });
       } catch {
         void navigate("/login", { replace: true });

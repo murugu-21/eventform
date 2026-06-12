@@ -30,4 +30,13 @@ export class TenantsService {
     );
     return res.rows[0];
   }
+
+  /** Display-name update (e.g. from the Google ID token after first login). */
+  async updateName(tenantId: string, name: string): Promise<Tenant> {
+    const res = await this.pool.query(
+      "UPDATE tenants SET name = $2 WHERE id = $1 RETURNING id, name",
+      [tenantId, name],
+    );
+    return res.rows[0];
+  }
 }

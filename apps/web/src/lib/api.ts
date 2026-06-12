@@ -115,6 +115,11 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
 
 export const api = {
   me: () => request<{ tenantId: string; name: string }>("/protected/v1/me"),
+  updateMe: (name: string) =>
+    request<{ tenantId: string; name: string }>("/protected/v1/me", {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
 
   listForms: () => request<Form[]>("/protected/v1/forms"),
   createForm: (title: string) =>

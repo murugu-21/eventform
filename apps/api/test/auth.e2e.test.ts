@@ -69,6 +69,33 @@ describe("auth", () => {
     expect(a.body.tenantId).toBe(b.body.tenantId);
   });
 
+  it("updates the tenant display name via PUT /me", async () => {
+    const res = await request(app.getHttpServer())
+      .put("/protected/v1/me")
+      .set("Authorization", `Bearer dev_${sub}`)
+      .send({ name: "Ada Lovelace" })
+      .expect(200);
+    expect(res.body.name).toBe("Ada Lovelace");
+
+    const me = await request(app.getHttpServer())
+      .get("/protected/v1/me")
+      .set("Authorization", `Bearer dev_${sub}`)
+      .expect(200);
+    expect(me.body.name).toBe("Ada Lovelace");
+
+    // validation lives in the pipe layer
+    await request(app.getHttpServer())
+      .put("/protected/v1/me")
+      .set("Authorization", `Bearer dev_${sub}`)
+      .send({ name: "" })
+      .expect(400);
+    await request(app.getHttpServer())
+      .put("/protected/v1/me")
+      .set("Authorization", `Bearer dev_${sub}`)
+      .send({ name: "x", extra: 1 })
+      .expect(400);
+  });
+
   it("keeps /health public", async () => {
     await request(app.getHttpServer()).get("/health").expect(200);
   });
