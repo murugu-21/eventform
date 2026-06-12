@@ -87,14 +87,23 @@ domain ever changes.
 
 **Minimum:** 2 GB RAM. Kafka + Debezium together use ~700 MB.
 
-### DNS
+### Cloudflare Tunnel (replaces public DNS + open ports)
 
-Point two A records at the VPS IPv4 address:
-- `eventform.murugappan.dev`
-- `eventform-api.murugappan.dev`
+All inbound traffic arrives via an outbound-only Cloudflare Tunnel — the VPS
+publishes **no ports** (the firewall can drop everything except SSH), the
+origin IP is never in DNS, and TLS is terminated at Cloudflare's edge (no
+ACME/Let's Encrypt needed). The tunnel is free.
 
-Allow a few minutes for propagation. Caddy will automatically obtain Let's
-Encrypt TLS certificates once the DNS resolves.
+1. [Cloudflare dashboard](https://one.dash.cloudflare.com) → **Networks →
+   Tunnels → Create a tunnel** (Cloudflared connector). Name it `eventform`.
+2. Copy the **tunnel token** — it goes into the VPS `.env` as `TUNNEL_TOKEN`.
+3. Under **Public Hostnames**, add two routes (both to the same service):
+   - `eventform.murugappan.dev` → `HTTP://caddy:80`
+   - `eventform-api.murugappan.dev` → `HTTP://caddy:80`
+   Cloudflare creates the (proxied) CNAME records automatically.
+
+Note: `auth.murugappan.dev` (Cognito) is unrelated to the tunnel — its
+DNS-only CNAME to CloudFront stays exactly as configured.
 
 ### Optional cloud-init snippet (Ubuntu 22.04/24.04)
 
@@ -138,7 +147,7 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `KMS_KEY_MATERIAL_FILE` | Absolute host path for the AES-256 key material file (created by gen-kms-material.sh in step 5b) | `/etc/eventform/kms-material.b64` |
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
-| `ACME_EMAIL` | Email for Let's Encrypt registration | `you@example.com` |
+| `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
 | `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
 | `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
 | `WEB_HOST` | *(optional)* Web hostname; default `eventform.murugappan.dev` | |

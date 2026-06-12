@@ -1,14 +1,17 @@
+# Tunnel mode: TLS terminates at Cloudflare's edge; cloudflared delivers
+# requests to Caddy over the compose network on plain :80. Caddy is the
+# internal host-based router (static SPA + API proxy). No ACME, no open ports.
 {
-  email {$ACME_EMAIL}
+  auto_https off
 }
 
-{$WEB_HOST:eventform.murugappan.dev} {
+http://{$WEB_HOST:eventform.murugappan.dev} {
   root * /srv/web
   encode gzip
   try_files {path} /index.html
   file_server
 }
 
-{$API_HOST:eventform-api.murugappan.dev} {
+http://{$API_HOST:eventform-api.murugappan.dev} {
   reverse_proxy api:3001
 }

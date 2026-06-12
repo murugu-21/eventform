@@ -6,7 +6,7 @@
 #   KMS_KEY_MATERIAL_FILE    host path to the base64-encoded AES-256 key material (mode 600)
 #   COGNITO_ISSUER           https://cognito-idp.<region>.amazonaws.com/<poolId>
 #   COGNITO_CLIENT_ID        Cognito app client id
-#   ACME_EMAIL               email for ACME/Let's Encrypt certificate registration
+#   TUNNEL_TOKEN             Cloudflare Tunnel token (Zero Trust -> Networks -> Tunnels)
 #   BACKUP_S3_BUCKET         from BackupStack output (eventform-backups-<account>)
 #   BACKUP_AWS_ACCESS_KEY_ID / BACKUP_AWS_SECRET_ACCESS_KEY
 #                            access key for the eventform-backup IAM user (PutObject-only)
@@ -148,7 +148,7 @@ services:
       COGNITO_ISSUER: ${COGNITO_ISSUER}
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
       CORS_ORIGINS: https://eventform.murugappan.dev
-      TRUST_PROXY: "1"
+      TRUST_PROXY: "2"
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: test
@@ -231,16 +231,26 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "80:80"
-      - "443:443"
+    # No published ports: ALL inbound traffic arrives via the cloudflared
+    # tunnel (outbound-only connection). The VPS firewall can drop 80/443.
     environment:
-      ACME_EMAIL: ${ACME_EMAIL}
       WEB_HOST: ${WEB_HOST:-eventform.murugappan.dev}
       API_HOST: ${API_HOST:-eventform-api.murugappan.dev}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+
+  cloudflared:
+    # Outbound-only tunnel to Cloudflare's edge. Public hostnames are mapped
+    # to http://caddy:80 in the Zero Trust dashboard (see DEPLOYMENT.md).
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      caddy:
+        condition: service_started
 
 volumes:
   pgdata:

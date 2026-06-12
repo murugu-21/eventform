@@ -6,7 +6,7 @@ export interface ApiConfig {
   authMode: "dev" | "cognito";
   cognitoIssuer: string;
   cognitoClientId: string;
-  trustProxy: boolean;
+  trustProxy: number;
   kmsKeyId: string;
   awsEndpointUrl: string;
   awsRegion: string;
@@ -26,7 +26,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     authMode: env.AUTH_MODE === "cognito" ? "cognito" : "dev",
     cognitoIssuer: env.COGNITO_ISSUER ?? "",
     cognitoClientId: env.COGNITO_CLIENT_ID ?? "",
-    trustProxy: env.TRUST_PROXY === "1",
+    // Number of proxy hops to trust (prod via tunnel: 2 = cloudflared + caddy).
+    trustProxy: Number(env.TRUST_PROXY ?? 0),
     kmsKeyId: env.KMS_KEY_ID ?? "alias/eventform-endpoint-secrets",
     // LocalStack KMS is the encryption provider in dev and prod (in prod the
     // compose network resolves it at http://localstack:4566). Real AWS KMS is
