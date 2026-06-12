@@ -1,6 +1,6 @@
 import type {
   Delivery, DeliveryDetail, Endpoint, EndpointWithSecret,
-  Form, FormWithFields, PublicForm, Submission,
+  Form, FormWithFields, PublicForm, Submission, SubmissionWithForm,
 } from "./types";
 import { refreshTokens } from "./pkce";
 import { getAccessToken, getRefreshToken, storeTokens } from "@/pages/auth-callback";
@@ -138,6 +138,8 @@ export const api = {
       }),
     }),
   publishForm: (id: string) => request<Form>(`/protected/v1/forms/${id}/publish`, { method: "POST" }),
+  listAllSubmissions: () =>
+    request<SubmissionWithForm[]>("/protected/v1/submissions"),
   listSubmissions: (formId: string) => request<Submission[]>(`/protected/v1/forms/${formId}/submissions`),
 
   listEndpoints: () => request<Endpoint[]>("/protected/v1/endpoints"),

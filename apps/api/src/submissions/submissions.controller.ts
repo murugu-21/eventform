@@ -16,3 +16,13 @@ export class SubmissionsController {
     return this.service.listForForm(tenant.id, formId);
   }
 }
+
+@Controller("protected/v1/submissions")
+export class AllSubmissionsController {
+  constructor(private readonly service: SubmissionsService) {}
+
+  @Get()
+  list(@CurrentTenant() tenant: Tenant) {
+    return this.service.listAll(tenant.id);
+  }
+}

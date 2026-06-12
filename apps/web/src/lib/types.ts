@@ -50,6 +50,10 @@ export interface Submission {
   sourceIp: string | null;
 }
 
+export interface SubmissionWithForm extends Submission {
+  formTitle: string;
+}
+
 export interface Delivery {
   id: string;
   endpointId: string;

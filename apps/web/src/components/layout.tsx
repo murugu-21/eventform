@@ -8,6 +8,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 
 const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/app", label: "Dashboard", end: true },
+  { to: "/app/responses", label: "Responses" },
   { to: "/app/endpoints", label: "Endpoints" },
   { to: "/app/deliveries", label: "Deliveries" },
 ];

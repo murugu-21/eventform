@@ -14,6 +14,7 @@ import DashboardPage from "@/pages/dashboard";
 import FormBuilderPage from "@/pages/form-builder";
 import SubmissionsPage from "@/pages/submissions";
 import EndpointsPage from "@/pages/endpoints";
+import ResponsesPage from "@/pages/responses";
 import DeliveriesPage from "@/pages/deliveries";
 
 // Layout
@@ -53,6 +54,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="forms/:id" element={<FormBuilderPage />} />
               <Route path="forms/:id/submissions" element={<SubmissionsPage />} />
+              <Route path="responses" element={<ResponsesPage />} />
               <Route path="endpoints" element={<EndpointsPage />} />
               <Route path="deliveries" element={<DeliveriesPage />} />
             </Route>
