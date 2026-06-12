@@ -3,13 +3,20 @@ import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
 
+export interface AuthStackProps extends cdk.StackProps {
+  /** Branded hosted-UI domain (e.g. auth.murugappan.dev); requires authCertificate. */
+  customAuthDomain?: string;
+  /** ISSUED us-east-1 ACM cert for customAuthDomain (from CertStack). */
+  authCertificate?: acm.ICertificate;
+}
+
 export class AuthStack extends cdk.Stack {
   /** https://cognito-idp.<region>.amazonaws.com/<poolId> */
   public readonly issuerUrl: string;
   public readonly clientId: string;
   public readonly hostedDomainUrl: string;
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: AuthStackProps) {
     super(scope, id, props);
 
     // Context-injected values; pass via: cdk deploy -c googleClientId=… -c googleClientSecret=…
@@ -56,16 +63,15 @@ export class AuthStack extends cdk.Stack {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix },
     });
 
-    // Optional branded custom domain (e.g. auth.murugappan.dev). Requires an
-    // ISSUED ACM cert in us-east-1 and an existing A record on the parent
-    // domain. Pass: -c customAuthDomain=auth.murugappan.dev -c authCertArn=arn:...
-    const customAuthDomain = this.node.tryGetContext("customAuthDomain") as string | undefined;
-    const authCertArn = this.node.tryGetContext("authCertArn") as string | undefined;
-    if (customAuthDomain && authCertArn) {
+    // Optional branded custom domain (e.g. auth.murugappan.dev), wired from
+    // bin/eventform.ts as a cross-stack reference to CertStack's certificate.
+    // Requires an existing A record on the parent domain.
+    const customAuthDomain = props?.customAuthDomain;
+    if (customAuthDomain && props.authCertificate) {
       const customDomain = userPool.addDomain("CustomDomain", {
         customDomain: {
           domainName: customAuthDomain,
-          certificate: acm.Certificate.fromCertificateArn(this, "AuthCert", authCertArn),
+          certificate: props.authCertificate,
         },
       });
       // CNAME target for the DNS record (CloudFront distribution behind the

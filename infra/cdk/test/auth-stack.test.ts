@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as cdk from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import { AuthStack } from "../lib/auth-stack";
 
@@ -77,23 +78,29 @@ describe("AuthStack", () => {
     });
   });
 
-  it("adds a custom domain (with cert) only when context is provided", () => {
-    // without context: exactly one domain (the prefix one)
+  it("adds a custom domain (with cert) only when props are provided", () => {
+    // without props: exactly one domain (the prefix one)
     Template.fromStack(makeStack()).resourceCountIs("AWS::Cognito::UserPoolDomain", 1);
 
-    // with context: prefix + custom domain with the ACM cert attached
+    // with props: prefix + custom domain with the ACM cert attached
     const app = new cdk.App({
       context: {
         googleClientId: "dummy-client-id",
         googleClientSecret: "dummy-client-secret",
         cognitoDomainPrefix: "eventform-auth",
-        customAuthDomain: "auth.murugappan.dev",
-        authCertArn:
-          "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
       },
+    });
+    const certHolder = new cdk.Stack(app, "TestCertHolder", {
+      env: { account: "123456789012", region: "us-east-1" },
     });
     const stack = new AuthStack(app, "AuthStack", {
       env: { account: "123456789012", region: "us-east-1" },
+      customAuthDomain: "auth.murugappan.dev",
+      authCertificate: acm.Certificate.fromCertificateArn(
+        certHolder,
+        "Cert",
+        "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
+      ),
     });
     const template = Template.fromStack(stack);
     template.resourceCountIs("AWS::Cognito::UserPoolDomain", 2);
