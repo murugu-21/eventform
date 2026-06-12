@@ -140,16 +140,22 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
           KMS_KEY_ID: alias/eventform-endpoint-secrets
 
-      - name: Wait for API to be ready
+      - name: Wait for API + Worker to be ready
         run: |
-          for i in $(seq 1 30); do
-            if curl -fs http://localhost:3001/health > /dev/null 2>&1; then
-              echo "API ready"
-              break
-            fi
-            echo "waiting for API... ($i/30)"
-            sleep 2
+          for svc in "API:3001" "Worker:3002"; do
+            name="${svc%%:*}"; port="${svc##*:}"
+            ready=""
+            for i in $(seq 1 30); do
+              if curl -fs "http://localhost:${port}/health" > /dev/null 2>&1; then
+                echo "${name} ready"; ready=1; break
+              fi
+              echo "waiting for ${name}... ($i/30)"; sleep 2
+            done
+            [ -n "$ready" ] || { echo "${name} never became healthy"; exit 1; }
           done
+          # The worker's consumer uses fromBeginning:false — give it time to join
+          # the group before we submit, so the submission's event isn't missed.
+          echo "letting the consumer group settle..."; sleep 15
 
       - name: Install Playwright Chromium
         run: pnpm --filter @eventform/web exec playwright install chromium --with-deps
