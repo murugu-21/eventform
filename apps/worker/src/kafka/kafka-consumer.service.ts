@@ -5,6 +5,7 @@ import {
   OnApplicationBootstrap,
 } from "@nestjs/common";
 import { Consumer, Kafka, logLevel } from "kafkajs";
+import type { Admin } from "kafkajs";
 import { submissionReceivedSchema } from "@eventform/shared";
 import { loadConfig } from "../config";
 import { DeliveryProcessor } from "../processor/delivery-processor.service";
@@ -25,6 +26,21 @@ export class KafkaConsumerService implements OnApplicationBootstrap, OnApplicati
       brokers: loadConfig().kafkaBrokers,
       logLevel: logLevel.WARN,
     });
+    // Ensure the topic exists before subscribing. On a fresh deploy no event has
+    // been produced yet, so the topic is absent and the consumer's metadata fetch
+    // would throw "This server does not host this topic-partition" and crash the
+    // process. createTopics is idempotent (returns false if it already exists).
+    const admin: Admin = kafka.admin();
+    try {
+      await admin.connect();
+      await admin.createTopics({
+        waitForLeaders: true,
+        topics: [{ topic: EVENTS_TOPIC, numPartitions: 1, replicationFactor: 1 }],
+      });
+    } finally {
+      await admin.disconnect();
+    }
+
     this.consumer = kafka.consumer({ groupId: CONSUMER_GROUP });
 
     this.consumer.on(this.consumer.events.CRASH, ({ payload }) => {
