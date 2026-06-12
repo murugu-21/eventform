@@ -45,9 +45,9 @@ jobs:
         env:
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
 
-      - name: Register Debezium connector
-        run: pnpm connect:register
-
+      # The deterministic suite (no Kafka roundtrip) is the blocking gate. The
+      # full CDC pipeline e2e is excluded here and covered by the Playwright
+      # smoke job below; run it locally with `pnpm --filter @eventform/worker test:pipeline`.
       - name: Run all tests
         run: pnpm test
 
