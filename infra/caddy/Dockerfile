@@ -6,9 +6,9 @@ WORKDIR /repo
 # Build args for baking VITE_* env vars at image build time
 ARG VITE_API_URL=https://eventform-api.murugappan.dev
 ARG VITE_AUTH_MODE=cognito
-ARG VITE_COGNITO_DOMAIN=
-ARG VITE_COGNITO_CLIENT_ID=
-ARG VITE_REDIRECT_URI=
+ARG VITE_COGNITO_DOMAIN=https://auth.murugappan.dev
+ARG VITE_COGNITO_CLIENT_ID=2lg7gav69pb2k0qnkt2md4kaio
+ARG VITE_REDIRECT_URI=https://eventform.murugappan.dev/auth/callback
 
 # Copy manifest files first for layer caching
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./

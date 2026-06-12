@@ -67,6 +67,8 @@ CDK will print three outputs — save them:
 | `AuthStack.ClientId` | Cognito app client ID | `COGNITO_CLIENT_ID` env var |
 | `AuthStack.HostedDomainUrl` | `https://eventform-auth.auth.us-east-1.amazoncognito.com` | `VITE_COGNITO_DOMAIN` build arg (Caddy image) |
 
+**Branded domain:** with CertStack deployed (`-c customAuthDomain=auth.murugappan.dev`), use `https://auth.murugappan.dev` as `VITE_COGNITO_DOMAIN` (already the Caddy image default) instead of the amazoncognito.com hosted domain.
+
 **Note:** The Caddy image bakes the Cognito domain into the static JS bundle at
 build time (Vite env vars). Re-building the Caddy image is required if the Cognito
 domain ever changes.
@@ -134,8 +136,8 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `APP_API_PASSWORD` | Password for the `app_api` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
 | `APP_WORKER_PASSWORD` | Password for the `app_worker` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
 | `KMS_KEY_MATERIAL_FILE` | Absolute host path for the AES-256 key material file (created by gen-kms-material.sh in step 5b) | `/etc/eventform/kms-material.b64` |
-| `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ABC123` |
-| `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `1abc2defg3hijkl` |
+| `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
+| `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
 | `ACME_EMAIL` | Email for Let's Encrypt registration | `you@example.com` |
 | `WEB_HOST` | *(optional)* Web hostname; default `eventform.murugappan.dev` | |
 | `API_HOST` | *(optional)* API hostname; default `eventform-api.murugappan.dev` | |
