@@ -62,7 +62,29 @@ export class DeliveriesService {
         .from(deliveryAttempts)
         .where(eq(deliveryAttempts.deliveryId, id))
         .orderBy(asc(deliveryAttempts.attemptNo));
-      return { ...delivery, attempts };
+
+      // The webhook payload, reconstructed from durable rows the same way the
+      // retry path builds it (outbox rows are pruned, so they can't serve
+      // historical reads). `attempt` reflects the last attempt actually sent.
+      const [submission] = await db
+        .select()
+        .from(submissions)
+        .where(eq(submissions.id, delivery.submissionId));
+      const [form] = await db.select().from(forms).where(eq(forms.id, submission.formId));
+      const payload: SubmissionReceivedEvent = {
+        eventId: delivery.eventId,
+        type: "submission.received",
+        attempt: Math.max(delivery.attemptCount, 1),
+        tenantId,
+        formId: form.id,
+        formTitle: form.title,
+        submissionId: submission.id,
+        endpointId: delivery.endpointId,
+        deliveryId: delivery.id,
+        answers: submission.answers,
+        submittedAt: submission.submittedAt.toISOString(),
+      };
+      return { ...delivery, attempts, payload };
     });
   }
 

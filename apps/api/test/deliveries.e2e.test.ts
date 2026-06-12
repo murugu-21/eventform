@@ -62,6 +62,12 @@ describe("deliveries api", () => {
     const res = await t.http().get(`/protected/v1/deliveries/${deliveryId}`).set(t.authed(subA)).expect(200);
     expect(res.body.attempts).toHaveLength(1);
     expect(res.body.attempts[0]).toMatchObject({ attemptNo: 1, responseCode: 500, error: "boom" });
+
+    // detail includes the reconstructed webhook payload, valid per the contract
+    const { submissionReceivedSchema } = await import("@eventform/shared");
+    const payload = submissionReceivedSchema.parse(res.body.payload);
+    expect(payload.deliveryId).toBe(deliveryId);
+    expect(payload.answers).toEqual({ "Your name": "Ada" });
   });
 
   it("retries a failed delivery: resets budget and emits a fresh outbox event", async () => {

@@ -88,17 +88,14 @@ function AttemptsTimeline({ deliveryId }: { deliveryId: string }) {
 
   const attempts = data.attempts ?? [];
 
-  if (attempts.length === 0) {
-    return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">No attempts yet.</div>
-    );
-  }
-
   return (
-    <div className="px-4 py-3 flex flex-col gap-2">
+    <div className="px-4 py-3 flex flex-col gap-3">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Attempt history
       </p>
+      {attempts.length === 0 && (
+        <p className="text-xs text-muted-foreground">No attempts yet.</p>
+      )}
       <div className="flex flex-col gap-1.5">
         {attempts.map((attempt: DeliveryAttempt) => (
           <div
@@ -146,6 +143,42 @@ function AttemptsTimeline({ deliveryId }: { deliveryId: string }) {
           </div>
         ))}
       </div>
+
+      <PayloadViewer payload={data.payload} />
+    </div>
+  );
+}
+
+// ── Webhook payload viewer ───────────────────────────────────────────────────
+
+function PayloadViewer({ payload }: { payload: Record<string, unknown> }) {
+  const [copied, setCopied] = useState(false);
+  const json = JSON.stringify(payload, null, 2);
+
+  function copy() {
+    void navigator.clipboard.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Webhook payload
+        </p>
+        <button
+          type="button"
+          onClick={copy}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {copied ? "Copied" : "Copy JSON"}
+        </button>
+      </div>
+      <pre className="text-xs font-mono rounded-lg bg-muted/50 px-3 py-2 overflow-x-auto max-h-64">
+        {json}
+      </pre>
     </div>
   );
 }

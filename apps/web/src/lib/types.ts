@@ -75,4 +75,6 @@ export interface DeliveryAttempt {
 
 export interface DeliveryDetail extends Delivery {
   attempts: DeliveryAttempt[];
+  /** The webhook payload as sent to the endpoint (reconstructed server-side). */
+  payload: Record<string, unknown>;
 }
