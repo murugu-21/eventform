@@ -21,7 +21,7 @@
  *   - Public link: data-testid="public-link"
  *   - New endpoint button: "New endpoint" → getByRole("button", { name: /new endpoint/i })
  *   - Secret dialog: shows whsec_ value; data-testid="secret-value"
- *   - Secret close button: data-testid="secret-close" (requires checkbox first)
+ *   - Secret close button: data-testid="secret-close" (closes the secret dialog)
  *   - Public form field: getByLabel("Name")
  *   - Submit button: getByRole("button", { name: /submit/i })
  *   - Thank you: "Response recorded" text
@@ -84,8 +84,6 @@ test("full loop: sign in → build → publish → submit → delivery delivered
   await page.getByRole("button", { name: /^create$/i }).click();
   // Secret dialog opens — secret value should be visible
   await expect(page.getByTestId("secret-value")).toBeVisible({ timeout: 10_000 });
-  // Check the "I've stored it" checkbox to enable close button
-  await page.getByRole("checkbox").check();
   // Click close (data-testid="secret-close")
   await page.getByTestId("secret-close").click();
   await expect(page.getByTestId("secret-value")).not.toBeVisible({ timeout: 5_000 });
