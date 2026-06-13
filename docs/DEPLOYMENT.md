@@ -4,9 +4,10 @@ This is the step-by-step handoff checklist to get eventform running at
 `eventform.murugappan.dev` / `eventform-api.murugappan.dev` on a generic VPS.
 
 **AWS is used only for Cognito (free tier).** The backend — Kafka API
-(Redpanda), Debezium, Postgres, the API/worker, and a Caddy API proxy — runs
-inside Docker on the VPS. Endpoint secrets are encrypted with in-process
-AES-256-GCM (no KMS, no LocalStack). There is no EC2, no ECS, no RDS. The **frontend
+(Redpanda), Debezium, Postgres, and the API/worker — runs inside Docker on the
+VPS; `cloudflared` routes the tunnel straight to the API (no reverse proxy).
+Endpoint secrets are encrypted with in-process AES-256-GCM (no KMS, no
+LocalStack). There is no EC2, no ECS, no RDS. The **frontend
 (SPA) is hosted on Cloudflare Pages**, a global CDN that stays up independently
 of the VPS, so the site shell loads even when the backend is down or restarting
 (API-dependent pages show a "waking up the backend" reconnecting screen via the
@@ -103,13 +104,15 @@ ACME/Let's Encrypt needed). The tunnel is free.
    Tunnels → Create a tunnel** (Cloudflared connector). Name it `eventform`.
 2. Copy the **tunnel token** — it goes into the VPS `.env` as `TUNNEL_TOKEN`.
 3. Under **Public Hostnames**, add a single route for the **API only**:
-   - `eventform-api.murugappan.dev` → `HTTP://caddy:80`
-   Cloudflare creates the (proxied) CNAME record automatically.
+   - `eventform-api.murugappan.dev` → `HTTP://api:3001`
+   Cloudflare creates the (proxied) CNAME record automatically. (`cloudflared`
+   shares the compose network, so it resolves the `api` service directly — no
+   reverse proxy in between.)
 
    The web hostname (`eventform.murugappan.dev`) is **not** on the tunnel — it
-   is served by Cloudflare Pages (Step 4b). If you migrated from the old
-   SPA-on-Caddy setup, delete the `eventform.murugappan.dev` tunnel hostname so
-   Pages can own that DNS record.
+   is served by Cloudflare Pages (Step 4b). If you migrated from an older
+   tunnel-hostname setup, delete the `eventform.murugappan.dev` tunnel hostname
+   so Pages can own that DNS record.
 
 Note: `auth.murugappan.dev` (Cognito) is unrelated to the tunnel — its
 DNS-only CNAME to CloudFront stays exactly as configured.
@@ -181,7 +184,6 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
 | `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
 | `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
-| `API_HOST` | *(optional)* API hostname for the Caddy proxy; default `eventform-api.murugappan.dev` | |
 | `AWS_REGION` | *(optional)* AWS region for the backup service; default `us-east-1` | |
 
 > **First-boot order matters.** The `app_api`/`app_worker` roles must exist
@@ -244,8 +246,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 The `connect-init` one-shot service registers the connector and exits.
-TLS is terminated at Cloudflare's edge (Caddy runs with `auto_https off`), so
-there are no certificates to obtain on the box.
+TLS is terminated at Cloudflare's edge and the tunnel reaches the API directly,
+so there are no certificates to obtain and no reverse proxy on the box.
 
 ---
 

@@ -68,22 +68,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build & Push Caddy image
-        # Caddy now only reverse-proxies the API (the SPA lives on Cloudflare
-        # Pages — see deploy-web.yml), so this image is config-only: no Vite
-        # build, no VITE_* args.
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/caddy/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-caddy:latest
-            ${{ env.IMAGE_PREFIX }}-caddy:${{ steps.meta.outputs.version }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Build & Push Migrate image
         uses: docker/build-push-action@v6
         with:

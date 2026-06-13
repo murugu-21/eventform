@@ -1,8 +1,9 @@
-# Local prod smoke-test override.
-# Disables TLS (auto_https off), exposes:
-#   :8080 → Caddy serving the SPA (VITE_AUTH_MODE=dev, VITE_API_URL=http://localhost:8081)
-#   :8081 → API directly (dev auth mode, no Caddy proxy needed locally)
+# Local prod smoke-test override. Runs the prod stack locally in dev-auth mode,
+# exposing:
+#   :8081  → API directly (dev auth mode; no Caddy, no tunnel locally)
 #   :15432 → postgres (for running migrations + bootstrap)
+# The SPA is served by Cloudflare Pages in real prod; for a local smoke test
+# point a Vite dev server (VITE_API_URL=http://localhost:8081) at the API.
 #
 # Usage:
 #   export DB_ADMIN_PASSWORD=localdev APP_API_PASSWORD=localdev APP_WORKER_PASSWORD=localdev
@@ -32,14 +33,13 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       AUTH_MODE: dev
-      CORS_ORIGINS: "http://localhost:8080,http://localhost:8081"
-      TRUST_PROXY: "0"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:8081"
       # app_api is created by migration 0001_rls.sql with password 'app_api_dev'
       DATABASE_URL_API: postgres://app_api:app_api_dev@postgres:5432/eventform
       DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
       COGNITO_ISSUER: ""
       COGNITO_CLIENT_ID: ""
-    # Expose API directly so the browser (via SPA) can reach http://localhost:8081
+    # Expose API directly so a local SPA / curl can reach http://localhost:8081
     ports:
       - "127.0.0.1:8081:3001"
 
@@ -70,37 +70,3 @@ services:
           http://connect:8083/connectors/eventform-outbox/config
         echo "connector registered"
       '
-
-  caddy:
-    build:
-      context: ../..
-      dockerfile: infra/caddy/Dockerfile
-      args:
-        # Bake dev-mode VITE_* into the local Caddy image
-        VITE_API_URL: "http://localhost:8081"
-        VITE_AUTH_MODE: dev
-        VITE_COGNITO_DOMAIN: ""
-        VITE_COGNITO_CLIENT_ID: ""
-        VITE_REDIRECT_URI: ""
-    ports:
-      - "8080:80"
-    environment:
-      ACME_EMAIL: ""
-    # Override Caddyfile to disable auto_https and serve on plain :80
-    configs:
-      - source: caddyfile_local
-        target: /etc/caddy/Caddyfile
-
-configs:
-  caddyfile_local:
-    content: |
-      {
-        auto_https off
-      }
-
-      :80 {
-        root * /srv/web
-        encode gzip
-        try_files {path} /index.html
-        file_server
-      }

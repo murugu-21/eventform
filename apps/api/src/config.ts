@@ -9,7 +9,6 @@ export interface ApiConfig {
   authMode: "dev" | "cognito";
   cognitoIssuer: string;
   cognitoClientId: string;
-  trustProxy: number;
   secretEncKey: string;
   throttleTtlSeconds: number;
   throttleLimit: number;
@@ -27,8 +26,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     authMode: env.AUTH_MODE === "cognito" ? "cognito" : "dev",
     cognitoIssuer: env.COGNITO_ISSUER ?? "",
     cognitoClientId: env.COGNITO_CLIENT_ID ?? "",
-    // Number of proxy hops to trust (prod via tunnel: 2 = cloudflared + caddy).
-    trustProxy: Number(env.TRUST_PROXY ?? 0),
     // Base64 32-byte AES-256 key for endpoint-secret encryption (SecretCipher).
     // Prod MUST set SECRET_ENC_KEY; the fallback is a fixed DEV-ONLY key so local
     // dev works with no setup and ciphertexts survive restarts.

@@ -12,7 +12,6 @@
 #                            access key for the eventform-backup IAM user (PutObject-only)
 #
 # Optional overrides (have defaults):
-#   API_HOST                 default: eventform-api.murugappan.dev
 #   AWS_REGION               default: us-east-1 (backup service only)
 
 name: eventform-prod
@@ -130,7 +129,6 @@ services:
       COGNITO_ISSUER: ${COGNITO_ISSUER}
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
       CORS_ORIGINS: https://eventform.murugappan.dev
-      TRUST_PROXY: "2"
       SECRET_ENC_KEY: ${SECRET_ENC_KEY}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
@@ -194,38 +192,19 @@ services:
       AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
 
-  caddy:
-    image: ghcr.io/murugu-21/eventform-caddy:latest
-    build:
-      context: ../..
-      dockerfile: infra/caddy/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
-    # No published ports: ALL inbound traffic arrives via the cloudflared
-    # tunnel (outbound-only connection). The VPS firewall can drop 80/443.
-    # Caddy proxies the API only; the SPA is on Cloudflare Pages.
-    environment:
-      API_HOST: ${API_HOST:-eventform-api.murugappan.dev}
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-
   cloudflared:
-    # Outbound-only tunnel to Cloudflare's edge. Public hostnames are mapped
-    # to http://caddy:80 in the Zero Trust dashboard (see DEPLOYMENT.md).
+    # Outbound-only tunnel to Cloudflare's edge. The API public hostname maps
+    # directly to http://api:3001 in the Zero Trust dashboard (see DEPLOYMENT.md)
+    # — no reverse proxy needed; the SPA is on Cloudflare Pages. No inbound ports.
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     depends_on:
-      caddy:
-        condition: service_started
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
   redpanda_data:
-  caddy_data:
-  caddy_config:

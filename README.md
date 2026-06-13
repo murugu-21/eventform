@@ -19,8 +19,8 @@ graph LR
         Bundle["Static SPA bundle\n+ ApiHealthGate fallback"]
     end
 
-    subgraph Caddy["Caddy (API reverse proxy)"]
-        Proxy["eventform-api.*"]
+    subgraph Tunnel["Cloudflare Tunnel (cloudflared)"]
+        Ingress["eventform-api.* → api:3001\n(outbound-only, no open ports)"]
     end
 
     subgraph API["NestJS API (app_api role)"]
@@ -56,8 +56,8 @@ graph LR
 
     Pages -->|"serves SPA bundle"| SPA
     SPA -->|"PKCE code flow"| Cognito
-    SPA -->|"Bearer access token"| Caddy
-    Caddy --> API
+    SPA -->|"Bearer access token"| Ingress
+    Ingress --> API
     API --> Auth
     Auth -->|"JWKS verify"| Cognito
     API -->|"AES-256-GCM encrypt\nendpoint secrets (in-process)"| OutboxInsert
@@ -203,8 +203,7 @@ packages/db       Drizzle schema, migrations, tenant-scoped tx helper
 apps/api          NestJS REST API — auth, forms, endpoints, public submission, deliveries
 apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
-infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod)
-infra/caddy       Dockerfile + Caddyfile — API reverse proxy (SPA is on Cloudflare Pages)
+infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod); cloudflared tunnel → api:3001
 infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack + BackupStack
 infra/prod        bootstrap.sh — first-boot hardening
 .github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)

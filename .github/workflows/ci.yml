@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     # This job intentionally continues-on-error while the e2e setup is being
     # stabilized. Promote to a required check once the full prod-mode boot
-    # (api + worker from dist + caddy) is wired up in CI.
+    # (api + worker from dist) is wired up in CI.
     continue-on-error: true
 
     steps:
@@ -118,7 +118,6 @@ jobs:
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
           AUTH_MODE: dev
           CORS_ORIGINS: "http://localhost:5173"
-          TRUST_PROXY: "0"
 
       - name: Start Worker in background
         run: |
