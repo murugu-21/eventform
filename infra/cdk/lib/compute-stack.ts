@@ -132,5 +132,54 @@ export class ComputeStack extends cdk.Stack {
       value: asg.autoScalingGroupName,
       description: "Scale 0↔1 with: aws autoscaling set-desired-capacity --auto-scaling-group-name <this> --desired-capacity {0|1}",
     });
+
+    // ── GitHub Actions OIDC: a keyless deploy role for the `rollout` job ────────
+    // The deploy workflow assumes this role via GitHub's OIDC provider instead of
+    // storing long-lived AWS access keys in repo secrets (safer for a public repo).
+    // Trust is scoped to THIS repo's `production` environment; permissions are
+    // exactly the ASG instance-refresh the rollout performs — nothing more.
+    const githubRepo =
+      (this.node.tryGetContext("githubRepo") as string | undefined) ?? "murugu-21/eventform";
+    // An account can hold only ONE provider per URL; pass an existing one via
+    // `-c githubOidcProviderArn=...` to import instead of creating a duplicate.
+    const existingOidcArn = this.node.tryGetContext("githubOidcProviderArn") as string | undefined;
+    const oidcProvider = existingOidcArn
+      ? iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(this, "GithubOidc", existingOidcArn)
+      : new iam.OpenIdConnectProvider(this, "GithubOidc", {
+          url: "https://token.actions.githubusercontent.com",
+          clientIds: ["sts.amazonaws.com"],
+        });
+
+    const deployRole = new iam.Role(this, "GithubDeployRole", {
+      roleName: "eventform-github-deploy",
+      description: "Assumed by GitHub Actions (OIDC) to roll the EventForm ASG — no static keys",
+      maxSessionDuration: cdk.Duration.hours(1),
+      assumedBy: new iam.OpenIdConnectPrincipal(oidcProvider, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          // Only the `production` environment of this repo may assume the role.
+          "token.actions.githubusercontent.com:sub": `repo:${githubRepo}:environment:production`,
+        },
+      }),
+    });
+    // DescribeAutoScalingGroups has no resource-level scoping → must be "*".
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["autoscaling:DescribeAutoScalingGroups"],
+        resources: ["*"],
+      }),
+    );
+    // The only mutation, scoped to THIS ASG.
+    deployRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["autoscaling:StartInstanceRefresh"],
+        resources: [asg.autoScalingGroupArn],
+      }),
+    );
+
+    new cdk.CfnOutput(this, "GithubDeployRoleArn", {
+      value: deployRole.roleArn,
+      description: "Set as the GitHub Actions variable AWS_ROLE_ARN; the rollout job assumes it via OIDC (no access keys)",
+    });
   }
 }

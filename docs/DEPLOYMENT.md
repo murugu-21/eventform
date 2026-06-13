@@ -153,16 +153,28 @@ to CloudFront stays as configured.
 
 ## Step 7 — Build & publish images, deploy the SPA
 
-Configure GitHub **Settings → Secrets and variables → Actions** (`production` env):
+Configure GitHub **Settings → Secrets and variables → Actions** (`production` environment).
+
+**Secrets:**
 
 | Secret | Used by |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` (scope: *Cloudflare Pages: Edit*) | `deploy-web.yml` |
-| `CLOUDFLARE_ACCOUNT_ID` | `deploy-web.yml` |
+| `NEON_DATABASE_URL` (owner, DIRECT host) | `deploy.yml` → `migrate` job |
+| `CLOUDFLARE_API_TOKEN` (scope: *Cloudflare Pages: Edit*) | `deploy-web.yml` — *skip if you build the SPA on Cloudflare Pages directly* |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-web.yml` — *ditto* |
+
+> **No AWS access keys.** The `rollout` job authenticates to AWS via **GitHub OIDC**,
+> assuming the `eventform-github-deploy` role that ComputeStack creates (trust scoped
+> to this repo's `production` environment). You only record its ARN as a variable —
+> available after Step 8.
+
+**Variables:**
 
 | Repository Variable | Value |
 |---|---|
-| `VITE_API_URL` | `https://eventform-api.murugappan.dev` |
+| `AWS_ROLE_ARN` | ComputeStack's `GithubDeployRoleArn` output (set **after** Step 8) — enables the keyless ASG rollout |
+| `AWS_REGION` | `ap-south-1` *(optional — already the default)* |
+| `VITE_API_URL` | `https://eventform-api.murugappan.dev` *(VITE\_\* only if building the SPA via `deploy-web.yml`; if building on Cloudflare Pages, set them there instead)* |
 | `VITE_AUTH_MODE` | `cognito` |
 | `VITE_COGNITO_DOMAIN` | `https://auth.murugappan.dev` (branded) or the amazoncognito.com hosted domain |
 | `VITE_COGNITO_CLIENT_ID` | Cognito app client ID |
@@ -193,6 +205,12 @@ userdata installs Docker, clones the repo, materializes `.env` from SSM, and run
 Neon (the deploy workflow's `migrate` job), not on the box. Debezium Server starts
 streaming from Neon on its own — it parses the connector config from env and needs
 no registration step — and `cloudflared` dials out to the tunnel.
+
+It also provisions the **GitHub OIDC provider + `eventform-github-deploy` role**
+(keyless CI deploys). Copy the stack's **`GithubDeployRoleArn`** output into the
+`AWS_ROLE_ARN` GitHub variable (Step 7); the `rollout` job then assumes it on each
+`v*` tag — no AWS keys stored. (The first tag pushed *before* this is set just
+skips the rollout cleanly; re-tag or re-run after setting it.)
 
 **Shell access** (no SSH, no inbound): `aws ssm start-session --target <instance-id>`.
 

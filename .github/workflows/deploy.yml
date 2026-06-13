@@ -142,25 +142,28 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-push, migrate]
     environment: production
+    # OIDC: mint a short-lived token to assume the AWS deploy role — no static keys.
+    permissions:
+      id-token: write
+      contents: read
     env:
-      AWS_CONFIGURED: ${{ secrets.AWS_ACCESS_KEY_ID != '' && 'yes' || '' }}
+      DEPLOY_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
     steps:
-      - name: Check AWS credentials are configured
+      - name: Check the OIDC deploy role is configured
         id: gate
         run: |
-          if [ -z "$AWS_CONFIGURED" ]; then
-            echo "::notice title=Rollout skipped::AWS_ACCESS_KEY_ID is not set. " \
-              "Add AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (and the AWS_REGION variable) to enable ASG rollout."
+          if [ -z "$DEPLOY_ROLE_ARN" ]; then
+            echo "::notice title=Rollout skipped::AWS_ROLE_ARN variable is not set. " \
+              "Deploy ComputeStack, then set its GithubDeployRoleArn output as the AWS_ROLE_ARN repo/environment variable to enable ASG rollout."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC — no static keys)
         if: steps.gate.outputs.skip == 'false'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
       - name: Start ASG instance refresh
         if: steps.gate.outputs.skip == 'false'
