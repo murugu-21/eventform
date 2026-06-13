@@ -6,8 +6,11 @@ services:
     command: postgres -c wal_level=logical
     environment:
       POSTGRES_USER: eventform
-      POSTGRES_PASSWORD: eventform
       POSTGRES_DB: eventform
+      # Local dev only: bound to 127.0.0.1, so trust auth lets app_api/app_worker
+      # (created password-less by the migration) connect with no password. No dev
+      # credentials anywhere; prod uses real per-role passwords from env.
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "127.0.0.1:5432:5432"
     volumes:

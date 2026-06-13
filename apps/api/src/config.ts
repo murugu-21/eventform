@@ -19,8 +19,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     port: Number(env.PORT ?? 3001),
     corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(",").map((o) => o.trim()),
+    // No committed password. Prod sets DATABASE_URL_API (Neon, password from env);
+    // local dev connects to the trust-auth dev Postgres password-less.
     databaseUrlApi:
-      env.DATABASE_URL_API ?? "postgres://app_api:app_api_dev@localhost:5432/eventform",
+      env.DATABASE_URL_API ?? "postgres://app_api@localhost:5432/eventform",
     databaseUrlAdmin:
       env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform",
     authMode: env.AUTH_MODE === "cognito" ? "cognito" : "dev",

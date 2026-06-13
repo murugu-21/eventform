@@ -34,8 +34,8 @@ services:
     environment:
       AUTH_MODE: dev
       CORS_ORIGINS: "http://localhost:5173,http://localhost:8081"
-      # app_api is created by migration 0001_rls.sql with password 'app_api_dev'
-      DATABASE_URL_API: postgres://app_api:app_api_dev@postgres:5432/eventform
+      # app_api is created password-less by migration 0001_rls.sql (trust auth locally)
+      DATABASE_URL_API: postgres://app_api@postgres:5432/eventform
       DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
       COGNITO_ISSUER: ""
       COGNITO_CLIENT_ID: ""
@@ -45,8 +45,8 @@ services:
 
   worker:
     environment:
-      # app_worker is created by migration 0001_rls.sql with password 'app_worker_dev'
-      DATABASE_URL_WORKER: postgres://app_worker:app_worker_dev@postgres:5432/eventform
+      # app_worker is created password-less by migration 0001_rls.sql (trust auth locally)
+      DATABASE_URL_WORKER: postgres://app_worker@postgres:5432/eventform
       DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
 
   migrate:

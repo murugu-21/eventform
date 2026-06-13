@@ -15,8 +15,10 @@ export interface WorkerConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return {
     port: Number(env.WORKER_PORT ?? 3002),
+    // No committed password. Prod sets DATABASE_URL_WORKER (Neon, password from env);
+    // local dev connects to the trust-auth dev Postgres password-less.
     databaseUrlWorker:
-      env.DATABASE_URL_WORKER ?? "postgres://app_worker:app_worker_dev@localhost:5432/eventform",
+      env.DATABASE_URL_WORKER ?? "postgres://app_worker@localhost:5432/eventform",
     databaseUrlAdmin:
       env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform",
     kafkaBrokers: (env.KAFKA_BROKERS ?? "localhost:29092").split(","),

@@ -8,7 +8,8 @@ import { OutboxCleanup } from "../src/scheduler/outbox-cleanup.service";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform";
 const WORKER_URL =
-  process.env.DATABASE_URL_WORKER ?? "postgres://app_worker:app_worker_dev@localhost:5432/eventform";
+  process.env.DATABASE_URL_WORKER ??
+  "postgres://app_worker@localhost:5432/eventform";
 
 describe("RetryScheduler", () => {
   let admin: Pool;

@@ -9,7 +9,8 @@ import { startTestServer, TestServer } from "./test-server";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform";
 const WORKER_URL =
-  process.env.DATABASE_URL_WORKER ?? "postgres://app_worker:app_worker_dev@localhost:5432/eventform";
+  process.env.DATABASE_URL_WORKER ??
+  "postgres://app_worker@localhost:5432/eventform";
 
 // Matches the worker's DEV_SECRET_ENC_KEY so the worker can decrypt what we encrypt.
 const cipher = new SecretCipher({

@@ -1,12 +1,17 @@
 -- Custom SQL migration file, put your code below! --
 
 -- Roles ----------------------------------------------------------------
+-- Created WITHOUT passwords — credentials never live in a committed migration.
+-- Passwords are applied separately from env ($APP_API_PASSWORD / $APP_WORKER_PASSWORD)
+-- by packages/db/scripts/set-role-passwords.mjs (dev) and bootstrap.sh (prod).
+-- Password-less creation also keeps this migration clean on Neon, whose control
+-- plane only rejects CREATE/ALTER ROLE when a (weak) password is supplied.
 DO $$ BEGIN
-  CREATE ROLE app_api LOGIN PASSWORD 'app_api_dev';
+  CREATE ROLE app_api LOGIN;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
-  CREATE ROLE app_worker LOGIN PASSWORD 'app_worker_dev';
+  CREATE ROLE app_worker LOGIN;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 ALTER ROLE app_worker BYPASSRLS;
