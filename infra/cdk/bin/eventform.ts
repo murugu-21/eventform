@@ -36,8 +36,10 @@ new AuthStack(app, "AuthStack", {
 // ComputeStack — EC2 ASG (scale-to-zero capable) running the container stack.
 // Requires a default VPC + concrete account/region (CDK_DEFAULT_ACCOUNT/REGION)
 // for the VPC lookup. Deploy with: cdk deploy ComputeStack
-// Region: set CDK_DEFAULT_REGION (ap-southeast-1 to co-locate with Neon, or
-// ap-south-1 for cheaper t4g, accepting cross-region DB latency).
+// Region: set CDK_DEFAULT_REGION=ap-south-1 (Mumbai) — cheapest Graviton t4g.
+// Neon has no Mumbai region, so the DB sits in ap-southeast-1 (Singapore) and the
+// API↔DB hop is cross-region (~50-65ms RTT) — fine for a demo box. To co-locate
+// with Neon instead, set CDK_DEFAULT_REGION=ap-southeast-1.
 new ComputeStack(app, "ComputeStack", {
   env,
   description: "EventForm EC2 ASG running the Docker Compose app stack",

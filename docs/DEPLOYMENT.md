@@ -9,7 +9,7 @@ Step-by-step runbook to deploy EventForm at `eventform.murugappan.dev` /
 |---|---|
 | Frontend (SPA) | **Cloudflare Pages** (global CDN; always up, independent of the backend) |
 | Ingress | **Cloudflare Tunnel** → `api:3001` directly (outbound-only, zero inbound ports, no reverse proxy) |
-| Compute (API + worker + Redpanda + Debezium) | **AWS EC2 Auto Scaling Group** (Graviton `t4g.small`), Docker Compose, `ap-southeast-1` |
+| Compute (API + worker + Redpanda + Debezium) | **AWS EC2 Auto Scaling Group** (Graviton `t4g.small`), Docker Compose, `ap-south-1` |
 | Database | **Neon** (managed serverless Postgres + PITR), `ap-southeast-1` |
 | Auth | **AWS Cognito** + Google IdP (free tier), `us-east-1` |
 | Endpoint-secret encryption | In-process **AES-256-GCM** (no KMS, no LocalStack) |
@@ -20,10 +20,13 @@ The EC2 box is **stateless** — Postgres is on Neon and the only on-box state
 credentials are committed anywhere: the DB migration creates roles password-less
 and passwords are applied from env.
 
-> **Regions:** Neon and the EC2 ASG both live in **`ap-southeast-1`** (Singapore)
-> so the API↔DB hop is in-region. Cognito stays in **`us-east-1`** (and CertStack,
-> if used, *must* be us-east-1 for CloudFront) — JWKS is fetched cross-region and
-> cached, which is fine.
+> **Regions:** The EC2 ASG runs in **`ap-south-1`** (Mumbai) — the cheapest
+> Graviton `t4g` region. Neon has no Mumbai region, so the database sits in
+> **`ap-southeast-1`** (Singapore), the nearest option, and the API↔DB hop is
+> **cross-region (~50–65 ms RTT)** — acceptable for a demo/recruiter-testing box.
+> (To co-locate compute with the DB instead, deploy ComputeStack to
+> `ap-southeast-1`.) Cognito stays in **`us-east-1`** (and CertStack, if used,
+> *must* be us-east-1 for CloudFront) — JWKS is fetched cross-region and cached.
 
 ---
 
@@ -41,8 +44,8 @@ and passwords are applied from env.
 
 ```bash
 cd infra/cdk && pnpm install
-pnpm exec cdk bootstrap aws://ACCOUNT_ID/us-east-1       # Cognito (+ CertStack)
-pnpm exec cdk bootstrap aws://ACCOUNT_ID/ap-southeast-1  # ComputeStack
+pnpm exec cdk bootstrap aws://ACCOUNT_ID/us-east-1   # Cognito (+ CertStack)
+pnpm exec cdk bootstrap aws://ACCOUNT_ID/ap-south-1  # ComputeStack (Mumbai)
 ```
 
 ## Step 2 — Google OAuth client
@@ -74,7 +77,8 @@ hosted domain → `VITE_COGNITO_DOMAIN`.
 
 ## Step 4 — Neon (database)
 
-1. **Create a project** in **`ap-southeast-1`** (Singapore).
+1. **Create a project** in **`ap-southeast-1`** (Singapore) — the nearest Neon
+   region to the Mumbai compute box (Neon has no `ap-south-1`).
 2. **Enable logical replication** (Project → Settings → **Logical replication**).
    Debezium CDC requires `wal_level=logical`; without it the connector cannot
    create its replication slot.
@@ -108,13 +112,15 @@ Then:
 (Neon passwords must satisfy its complexity policy — use real generated secrets,
 not the placeholders.)
 
-## Step 5 — Secrets into SSM Parameter Store (ap-southeast-1)
+## Step 5 — Secrets into SSM Parameter Store (ap-south-1)
 
-The EC2 instance reads these at boot (its IAM role grants read on `/eventform/*`).
-Create each as a **SecureString** in **`ap-southeast-1`**:
+The EC2 instance reads these at boot from **its own region** (its IAM role grants
+read on `arn:aws:ssm:<compute-region>:…:parameter/eventform/*`), so the params
+must live in the **compute region — `ap-south-1`**, not where Neon is.
+Create each as a **SecureString** in **`ap-south-1`**:
 
 ```bash
-R=ap-southeast-1
+R=ap-south-1
 put() { aws ssm put-parameter --region $R --type SecureString --overwrite --name "$1" --value "$2"; }
 put /eventform/database-url        'postgres://<owner>:<pw>@<direct-host>/neondb?sslmode=require'
 put /eventform/database-url-api    'postgres://app_api:<pw>@<pooled-host>/neondb?sslmode=require'
@@ -176,7 +182,7 @@ Configure GitHub **Settings → Secrets and variables → Actions** (`production
 
 ```bash
 cd infra/cdk
-CDK_DEFAULT_REGION=ap-southeast-1 pnpm exec cdk deploy ComputeStack
+CDK_DEFAULT_REGION=ap-south-1 pnpm exec cdk deploy ComputeStack
 ```
 
 This creates the launch template (`t4g.small`, AL2023 ARM, 16 GB gp3, IMDSv2),
@@ -222,10 +228,10 @@ no registration step — and `cloudflared` dials out to the tunnel.
 The ASG is scale-to-zero-capable (min 0 / max 1):
 
 ```bash
-ASG=$(aws autoscaling describe-auto-scaling-groups --region ap-southeast-1 \
+ASG=$(aws autoscaling describe-auto-scaling-groups --region ap-south-1 \
   --query "AutoScalingGroups[?contains(AutoScalingGroupName,'ComputeStack')].AutoScalingGroupName" --output text)
-aws autoscaling set-desired-capacity --region ap-southeast-1 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
-aws autoscaling set-desired-capacity --region ap-southeast-1 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
+aws autoscaling set-desired-capacity --region ap-south-1 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
+aws autoscaling set-desired-capacity --region ap-south-1 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
 ```
 
 A new instance is stateless: it re-pulls images, re-runs migrations (idempotent),
@@ -241,20 +247,21 @@ console (PITR / branch-from-timestamp). There is no self-managed backup service.
 
 | Resource | ~Monthly |
 |---|---|
-| EC2 `t4g.small` (ap-southeast-1) + 16 GB gp3 + IPv4 | ~$15–17 |
+| EC2 `t4g.small` (ap-south-1) + 16 GB gp3 + IPv4 | ~$13 |
 | Neon (free tier) | $0 |
 | Cognito (50k MAU free) | $0 |
 | Cloudflare Pages + Tunnel | $0 |
-| **Total** | **~$15–17/mo** |
+| **Total** | **~$13/mo** |
 
-(Scale-to-zero or a flat-rate VPS would be cheaper; this is the always-on EC2 number.)
+(Mumbai `t4g` is ~⅓ cheaper than us-east-1; the ~$3.65 of that is the public IPv4.
+Scale-to-zero drops the EC2 + IPv4 line toward $0 when idle.)
 
 ### Teardown
 
 ```bash
-CDK_DEFAULT_REGION=ap-southeast-1 pnpm exec cdk destroy ComputeStack
+CDK_DEFAULT_REGION=ap-south-1 pnpm exec cdk destroy ComputeStack
 # Cognito (RETAIN policy protects the user pool; --force to really delete):
 CDK_DEFAULT_REGION=us-east-1 pnpm exec cdk destroy AuthStack -c googleClientId=x -c googleClientSecret=x
 # Neon: delete the project from the Neon console.
-# SSM: aws ssm delete-parameters --region ap-southeast-1 --names $(aws ssm get-parameters-by-path --region ap-southeast-1 --path /eventform --query 'Parameters[].Name' --output text)
+# SSM: aws ssm delete-parameters --region ap-south-1 --names $(aws ssm get-parameters-by-path --region ap-south-1 --path /eventform --query 'Parameters[].Name' --output text)
 ```
