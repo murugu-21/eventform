@@ -182,9 +182,6 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
 | `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
-| `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
-| `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
-| `AWS_REGION` | *(optional)* AWS region for the backup service; default `us-east-1` | |
 
 > **First-boot order matters.** The `app_api`/`app_worker` roles must exist
 > *before* their passwords can be rotated (the migration creates them). Run
@@ -338,29 +335,12 @@ After the first deploy, verify the following manually:
 | Domain | already owned | |
 | **Total** | **~€4–6/mo** | |
 
-### Backups (automatic, append-only)
+### Backups
 
-The `backup` service runs `pg_dump -Fc | gzip` on boot and every 24 h,
-uploading to the BackupStack bucket (`eventform-backups-<account>`). The
-bucket is versioned with PutObject-only credentials, so a compromised VPS
-cannot read or destroy backup history; lifecycle expires dumps after 30 days.
-
-One-time setup — create the access key YOURSELF (keeps the secret out of
-CloudFormation outputs and any chat/transcript):
-
-```bash
-AWS_PROFILE=eventform aws iam create-access-key --user-name eventform-backup
-```
-
-Put the two values into the VPS `.env` as `BACKUP_AWS_ACCESS_KEY_ID` /
-`BACKUP_AWS_SECRET_ACCESS_KEY`.
-
-Restore drill (run anywhere with admin credentials):
-
-```bash
-aws s3 cp s3://eventform-backups-<account>/pg/<latest>.dump.gz - | gunzip > /tmp/ef.dump
-pg_restore --clean --if-exists -d "$DATABASE_URL" /tmp/ef.dump
-```
+Postgres is hosted on **Neon**, which provides automatic continuous backups
+and point-in-time restore on its own infrastructure — there is no self-managed
+`pg_dump`/S3 backup service. Restore is done from the Neon console (PITR /
+branch-from-timestamp).
 
 ### Teardown
 

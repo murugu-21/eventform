@@ -166,8 +166,8 @@ pnpm --filter @eventform/web dev
 | `apps/api` | 62 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
 | `apps/worker` | 22 | delivery processor, retry scheduler (SKIP LOCKED), backoff, pipeline e2e (real Kafka) |
 | `apps/web` | 22 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
-| `infra/cdk` | 11 | AuthStack + CertStack + BackupStack CloudFormation template assertions (no AWS) |
-| **Total** | **159** | unit + integration |
+| `infra/cdk` | 9 | AuthStack + CertStack CloudFormation template assertions (no AWS) |
+| **Total** | **157** | unit + integration |
 | **Playwright smoke** | 2 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
 
 Run all unit/integration suites:
@@ -204,7 +204,7 @@ apps/api          NestJS REST API — auth, forms, endpoints, public submission,
 apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
 infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod); cloudflared tunnel → api:3001
-infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack + BackupStack
+infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack
 infra/prod        bootstrap.sh — first-boot hardening
 .github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)
 docs/DEPLOYMENT.md  Human handoff checklist

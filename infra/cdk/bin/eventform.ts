@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { AuthStack } from "../lib/auth-stack";
-import { BackupStack } from "../lib/backup-stack";
 import { CertStack } from "../lib/cert-stack";
 
 const app = new cdk.App();
@@ -31,10 +30,4 @@ new AuthStack(app, "AuthStack", {
   description: "Eventform Cognito User Pool with Google federation",
   customAuthDomain,
   authCertificate: certStack?.certificate,
-});
-
-// BackupStack — append-only S3 target for nightly pg_dump uploads from the VPS.
-new BackupStack(app, "BackupStack", {
-  env,
-  description: "EventForm append-only Postgres backup bucket",
 });
