@@ -1,40 +1,24 @@
 # x-required-env: document every ${VAR} used in this file
 #
-#   DB_ADMIN_PASSWORD        postgres superuser password (POSTGRES_PASSWORD)
-#   APP_API_PASSWORD         password for the app_api role
-#   APP_WORKER_PASSWORD      password for the app_worker role
+#   DATABASE_URL             Neon owner connection (DIRECT endpoint, sslmode=require)
+#                            — used by migrations and Debezium CDC. NOT the -pooler host.
+#   DATABASE_URL_API         Neon app_api connection (RLS role; pooled endpoint is fine)
+#   DATABASE_URL_WORKER      Neon app_worker connection (BYPASSRLS role; pooled is fine)
 #   SECRET_ENC_KEY           base64-encoded 32-byte AES-256 key for endpoint-secret encryption
 #   COGNITO_ISSUER           https://cognito-idp.<region>.amazonaws.com/<poolId>
 #   COGNITO_CLIENT_ID        Cognito app client id
 #   TUNNEL_TOKEN             Cloudflare Tunnel token (Zero Trust -> Networks -> Tunnels)
 #
-# Backups: handled by the managed Postgres provider (Neon PITR), so there is no
-# pg_dump/S3 backup service here.
+# Postgres is hosted on Neon (managed, with PITR backups) — there is no local
+# Postgres or pg_dump/S3 backup service here. Roles' passwords are applied from
+# env via `pnpm db:roles` / bootstrap.sh (see DEPLOYMENT.md).
 
 name: eventform-prod
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    command: postgres -c wal_level=logical
-    environment:
-      POSTGRES_USER: eventform
-      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
-      POSTGRES_DB: eventform
-    # No published port in prod — access via docker exec or override file
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U eventform -d eventform"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-
   # Kafka-API broker. Redpanda (C++, single process, no JVM) in place of
   # Apache Kafka for resource footprint — kafkajs and Debezium speak the same
-  # protocol and can't tell the difference.
+  # protocol and can't tell the difference. Sized for a 2 GB box (t4g.small).
   kafka:
     image: redpandadata/redpanda:v25.3.15
     restart: unless-stopped
@@ -42,7 +26,7 @@ services:
       - redpanda
       - start
       - --smp=1
-      - --memory=768M
+      - --memory=512M
       - --reserve-memory=0M
       - --overprovisioned
       - --kafka-addr=internal://0.0.0.0:9092
@@ -53,7 +37,6 @@ services:
       - redpanda.log_retention_ms=86400000
     volumes:
       - redpanda_data:/var/lib/redpanda/data
-    # No published port in prod — the broker is internal only
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
       interval: 10s
@@ -67,8 +50,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
     environment:
       BOOTSTRAP_SERVERS: kafka:9092
       GROUP_ID: eventform-connect
@@ -78,7 +59,6 @@ services:
       CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
       CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
       KAFKA_HEAP_OPTS: -Xmx384m -Xms256m
-    # No published port in prod
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8083/connectors > /dev/null"]
       interval: 10s
@@ -87,27 +67,19 @@ services:
       start_period: 30s
 
   connect-init:
-    # One-shot: registers the Debezium connector via the REST API.
-    # Retries until connect is ready, then exits.
+    # One-shot: registers the Debezium connector against Neon. The script parses
+    # DATABASE_URL into the connector's host/user/password/dbname fields and
+    # registers via the Connect REST API, then exits.
     image: curlimages/curl:8.11.0
     restart: "no"
     depends_on:
       connect:
         condition: service_healthy
     environment:
-      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL}
     volumes:
       - ./connect:/connector:ro
-    entrypoint: >
-      sh -c '
-        set -e
-        CONFIG=$$(cat /connector/eventform-outbox-prod.json | sed "s/\$${DB_ADMIN_PASSWORD}/$$DB_ADMIN_PASSWORD/g")
-        curl -fsS -X PUT \
-          -H "Content-Type: application/json" \
-          --data "$$CONFIG" \
-          http://connect:8083/connectors/eventform-outbox/config
-        echo "connector registered"
-      '
+    entrypoint: ["sh", "/connector/register-prod.sh"]
 
   api:
     image: ghcr.io/murugu-21/eventform-api:latest
@@ -115,13 +87,10 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       PORT: "3001"
-      DATABASE_URL_API: postgres://app_api:${APP_API_PASSWORD}@postgres:5432/eventform
-      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+      DATABASE_URL_API: ${DATABASE_URL_API}
+      DATABASE_URL: ${DATABASE_URL}
       AUTH_MODE: cognito
       COGNITO_ISSUER: ${COGNITO_ISSUER}
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
@@ -141,14 +110,12 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       kafka:
         condition: service_healthy
     environment:
       WORKER_PORT: "3002"
-      DATABASE_URL_WORKER: postgres://app_worker:${APP_WORKER_PASSWORD}@postgres:5432/eventform
-      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+      DATABASE_URL_WORKER: ${DATABASE_URL_WORKER}
+      DATABASE_URL: ${DATABASE_URL}
       # NOTE: Use the in-network PLAINTEXT listener (kafka:9092), not the external one (29092)
       KAFKA_BROKERS: kafka:9092
       SECRET_ENC_KEY: ${SECRET_ENC_KEY}
@@ -162,11 +129,8 @@ services:
       dockerfile: packages/db/Dockerfile.migrate
     profiles: ["setup"]
     restart: "no"
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
+      DATABASE_URL: ${DATABASE_URL}
 
   cloudflared:
     # Outbound-only tunnel to Cloudflare's edge. The API public hostname maps
@@ -182,5 +146,4 @@ services:
         condition: service_healthy
 
 volumes:
-  pgdata:
   redpanda_data:
