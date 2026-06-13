@@ -82,7 +82,7 @@ describe("public form submit", () => {
     expect(subs.rows[0].answers).toEqual(VALID_ANSWERS.answers);
 
     const deliveries = await t.adminPool.query(
-      "SELECT * FROM deliveries WHERE submission_id = $1 ORDER BY created_at", [res.body.submissionId]);
+      "SELECT * FROM deliveries WHERE payload->>'submissionId' = $1 ORDER BY created_at", [res.body.submissionId]);
     expect(deliveries.rowCount).toBe(2); // inactive endpoint excluded
     expect(deliveries.rows.every((d: { status: string }) => d.status === "pending")).toBe(true);
 
@@ -114,7 +114,7 @@ describe("public form submit", () => {
     const form = await publishForm(t, lonelySub, "No endpoints");
     const res = await t.http().post(`/v1/forms/${form.publicSlug}`).send(VALID_ANSWERS).expect(201);
     const deliveries = await t.adminPool.query(
-      "SELECT count(*)::int AS n FROM deliveries WHERE submission_id = $1", [res.body.submissionId]);
+      "SELECT count(*)::int AS n FROM deliveries WHERE payload->>'submissionId' = $1", [res.body.submissionId]);
     expect(deliveries.rows[0].n).toBe(0);
     // lonelySub cleanup deferred to afterAll so failed runs don't leak tenants
   });

@@ -1,0 +1,5 @@
+# Cloudflare Pages SPA fallback: serve index.html for any path that isn't a
+# real static asset, so client-side routes (/app, /forms/:slug, /auth/callback,
+# …) resolve to the React app instead of a 404. Existing files (JS, CSS, images)
+# are served directly and take precedence over this rule.
+/*    /index.html    200

@@ -9,7 +9,7 @@ const ADMIN_URL =
   process.env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform";
 const API_URL =
   process.env.DATABASE_URL_API ??
-  "postgres://app_api:app_api_dev@localhost:5432/eventform";
+  "postgres://app_api@localhost:5432/eventform";
 
 describe("row-level security", () => {
   let adminPool: Pool;

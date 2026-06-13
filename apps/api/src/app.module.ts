@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
-import { ThrottlerGuard, ThrottlerModule, seconds } from "@nestjs/throttler";
+import { ThrottlerModule, seconds } from "@nestjs/throttler";
+import { CfThrottlerGuard } from "./cf-throttler.guard";
 import { HealthController } from "./health.controller";
 import { DbModule } from "./db/db.module";
 import { AuthModule } from "./auth/auth.module";
@@ -29,7 +30,7 @@ import { loadConfig } from "./config";
   ],
   controllers: [HealthController],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: CfThrottlerGuard },
     { provide: APP_FILTER, useClass: DrizzleExceptionFilter },
   ],
 })

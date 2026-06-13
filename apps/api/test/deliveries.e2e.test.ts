@@ -14,7 +14,7 @@ describe("deliveries api", () => {
     const res = await t.http().post(`/v1/forms/${form.publicSlug}`)
       .send({ answers: { "Your name": "Ada" } }).expect(201);
     const rows = await t.adminPool.query(
-      "SELECT id FROM deliveries WHERE submission_id = $1", [res.body.submissionId]);
+      "SELECT id FROM deliveries WHERE payload->>'submissionId' = $1", [res.body.submissionId]);
     return { deliveryId: rows.rows[0].id as string, endpointId: ep.body.id as string };
   }
 

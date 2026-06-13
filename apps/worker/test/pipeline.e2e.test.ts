@@ -10,10 +10,9 @@ import { startTestServer, TestServer } from "./test-server";
 
 const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://eventform:eventform@localhost:5432/eventform";
 
+// Matches the worker's DEV_SECRET_ENC_KEY so the running worker decrypts what we encrypt.
 const cipher = new SecretCipher({
-  keyId: "alias/eventform-endpoint-secrets",
-  endpoint: "http://localhost:4566",
-  region: "us-east-1",
+  key: Buffer.from("eventform_dev_only_secret_key_32", "utf8").toString("base64"),
 });
 
 async function until<T>(fn: () => Promise<T | undefined>, timeoutMs = 60_000, everyMs = 500): Promise<T> {
@@ -66,23 +65,16 @@ describe("pipeline e2e: outbox → debezium → kafka → worker → webhook", (
     await admin.query("INSERT INTO tenants (id, name, cognito_sub) VALUES ($1,'pipe',$2)", [
       tenantId, `pipe-${randomUUID()}`]);
     await admin.query(
-      "INSERT INTO forms (id, tenant_id, title, status, public_slug) VALUES ($1,$2,'Pipe','published',$3)",
-      [formId, tenantId, `pipe-${randomUUID()}`]);
-    await admin.query(
       "INSERT INTO endpoints (id, tenant_id, name, url, secret_ciphertext) VALUES ($1,$2,'hook',$3,$4)",
       [endpointId, tenantId, server.url, ciphertext]);
-    await admin.query(
-      "INSERT INTO submissions (id, form_id, tenant_id, answers) VALUES ($1,$2,$3,'{\"Q\":\"pipe\"}'::jsonb)",
-      [submissionId, formId, tenantId]);
-    await admin.query(
-      "INSERT INTO deliveries (id, tenant_id, endpoint_id, submission_id, event_id) VALUES ($1,$2,$3,$4,$5)",
-      [deliveryId, tenantId, endpointId, submissionId, eventId]);
-
     const payload = {
       eventId, type: "submission.received", attempt: 1, tenantId, formId,
       formTitle: "Pipe", submissionId, endpointId, deliveryId,
       answers: { Q: "pipe" }, submittedAt: new Date().toISOString(),
     };
+    await admin.query(
+      "INSERT INTO deliveries (id, tenant_id, endpoint_id, payload, event_id) VALUES ($1,$2,$3,$4,$5)",
+      [deliveryId, tenantId, endpointId, JSON.stringify(payload), eventId]);
     // The atomic write the API does — here only the outbox insert is the trigger:
     await admin.query(
       `INSERT INTO outbox (id, tenant_id, aggregate_type, aggregate_id, event_type, payload)
@@ -123,22 +115,16 @@ describe("pipeline e2e: outbox → debezium → kafka → worker → webhook", (
     const eventId = randomUUID();
     const ciphertext = await cipher.encrypt(secret, tenantId);
     await admin.query(
-      "INSERT INTO forms (id, tenant_id, title, status, public_slug) VALUES ($1,$2,'P2','published',$3)",
-      [formId, tenantId, `pipe2-${randomUUID()}`]);
-    await admin.query(
       "INSERT INTO endpoints (id, tenant_id, name, url, secret_ciphertext) VALUES ($1,$2,'h2',$3,$4)",
       [endpointId, tenantId, server.url, ciphertext]);
-    await admin.query(
-      "INSERT INTO submissions (id, form_id, tenant_id, answers) VALUES ($1,$2,$3,'{\"Q\":\"2\"}'::jsonb)",
-      [submissionId, formId, tenantId]);
-    await admin.query(
-      "INSERT INTO deliveries (id, tenant_id, endpoint_id, submission_id, event_id) VALUES ($1,$2,$3,$4,$5)",
-      [deliveryId, tenantId, endpointId, submissionId, eventId]);
     const payload = {
       eventId, type: "submission.received", attempt: 1, tenantId, formId,
       formTitle: "P2", submissionId, endpointId, deliveryId,
       answers: { Q: "2" }, submittedAt: new Date().toISOString(),
     };
+    await admin.query(
+      "INSERT INTO deliveries (id, tenant_id, endpoint_id, payload, event_id) VALUES ($1,$2,$3,$4,$5)",
+      [deliveryId, tenantId, endpointId, JSON.stringify(payload), eventId]);
     await admin.query(
       `INSERT INTO outbox (id, tenant_id, aggregate_type, aggregate_id, event_type, payload)
        VALUES ($1,$2,'delivery',$3,'submission.received',$4)`,

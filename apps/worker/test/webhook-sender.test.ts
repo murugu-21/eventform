@@ -5,9 +5,7 @@ import { WebhookSender } from "../src/webhook/webhook-sender.service";
 import { startTestServer, TestServer } from "./test-server";
 
 const cipher = new SecretCipher({
-  keyId: "alias/eventform-endpoint-secrets",
-  endpoint: "http://localhost:4566",
-  region: "us-east-1",
+  key: Buffer.from("eventform_dev_only_secret_key_32", "utf8").toString("base64"),
 });
 
 describe("WebhookSender", () => {

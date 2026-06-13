@@ -2,8 +2,8 @@
 
 Multi-tenant form builder with end-to-end webhook delivery, built to demonstrate
 production-grade distributed-systems patterns: transactional outbox, CDC via
-Debezium, idempotent Kafka consumer, row-level security, KMS-encrypted secrets,
-and Cognito PKCE auth — all runnable locally with a single `docker compose up`.
+Debezium, idempotent Kafka consumer, row-level security, AES-256-GCM-encrypted
+secrets, and Cognito PKCE auth — all runnable locally with a single `docker compose up`.
 
 ---
 
@@ -15,10 +15,12 @@ graph LR
         SPA["React 19 SPA\n(PKCE auth)"]
     end
 
-    subgraph Caddy["Caddy (TLS termination)"]
-        direction TB
-        StaticFiles["Static files\n(web)"]
-        Proxy["API proxy\n(eventform-api.*)"]
+    subgraph Pages["Cloudflare Pages (CDN)"]
+        Bundle["Static SPA bundle\n+ ApiHealthGate fallback"]
+    end
+
+    subgraph Tunnel["Cloudflare Tunnel (cloudflared)"]
+        Ingress["eventform-api.* → api:3001\n(outbound-only, no open ports)"]
     end
 
     subgraph API["NestJS API (app_api role)"]
@@ -31,11 +33,11 @@ graph LR
         RLS["RLS policies\n(tenant isolation)"]
     end
 
-    subgraph Debezium["Debezium Connect (CDC)"]
-        Connector["eventform-outbox\nconnector"]
+    subgraph Debezium["Debezium Server (CDC)"]
+        Connector["embedded engine\n+ EventRouter SMT"]
     end
 
-    subgraph Kafka["Kafka (KRaft)"]
+    subgraph Kafka["Redpanda (Kafka API)"]
         Topic["eventform.events"]
     end
 
@@ -52,15 +54,13 @@ graph LR
         Cognito["Cognito UserPool\n(Google IdP)"]
     end
 
-    subgraph LocalStack["LocalStack (KMS — host-pinned material)"]
-        KMS["KMS key\nalias/eventform-endpoint-secrets"]
-    end
-
+    Pages -->|"serves SPA bundle"| SPA
     SPA -->|"PKCE code flow"| Cognito
-    SPA -->|"Bearer access token"| Caddy
-    Caddy --> API
+    SPA -->|"Bearer access token"| Ingress
+    Ingress --> API
     API --> Auth
     Auth -->|"JWKS verify"| Cognito
+    API -->|"AES-256-GCM encrypt\nendpoint secrets (in-process)"| OutboxInsert
     API --> OutboxInsert
     OutboxInsert --> OutboxTable
     OutboxTable --> Connector
@@ -68,7 +68,6 @@ graph LR
     Topic --> Consumer
     Consumer -->|"HMAC-signed POST"| HTTP
     Consumer --> Retry
-    API -->|"KMS encrypt/decrypt\nendpoint secrets"| KMS
     RLS -.->|"tenant isolation"| OutboxTable
 ```
 
@@ -83,25 +82,27 @@ so multiple worker replicas never race on the same row.
 | Pattern | Why it matters | Implementing file |
 |---|---|---|
 | **Transactional outbox** | Submission write and event emit are atomic — no dual-write, no missed events | [`apps/api/src/public/public.service.ts`](apps/api/src/public/public.service.ts) |
-| **CDC (Debezium)** | Outbox rows flow to Kafka via the Postgres WAL — zero polling, no extra DB load | [`infra/compose/connect/eventform-outbox.json`](infra/compose/connect/eventform-outbox.json) |
+| **CDC (Debezium Server)** | Outbox rows flow to Kafka via the Postgres WAL — zero polling, no extra DB load. A single Debezium Server process (no Connect cluster), configured entirely by env | [`infra/compose/docker-compose.yml`](infra/compose/docker-compose.yml) |
 | **Idempotent consumer** | Each event id is claimed in a `processed_events` ledger inside the work transaction; re-delivered messages hit the conflict and are skipped | [`apps/worker/src/processor/delivery-processor.service.ts`](apps/worker/src/processor/delivery-processor.service.ts) |
 | **Row-level security** | Every query runs under a tenant-scoped transaction; no cross-tenant data leaks at the SQL layer | [`packages/db/migrations/0001_rls.sql`](packages/db/migrations/0001_rls.sql) |
 | **SKIP LOCKED scheduler** | Retry rows are claimed with `SELECT ... FOR UPDATE SKIP LOCKED` — safe to run N replicas | [`apps/worker/src/scheduler/retry-scheduler.service.ts`](apps/worker/src/scheduler/retry-scheduler.service.ts) |
 | **Manual retry (API)** | Operators can re-queue failed deliveries from the dashboard | [`apps/api/src/deliveries/deliveries.service.ts`](apps/api/src/deliveries/deliveries.service.ts) |
 | **HMAC webhook signing** | Every delivery carries `X-Eventform-Signature`; receivers verify authenticity | [`packages/shared/src/hmac.ts`](packages/shared/src/hmac.ts) |
-| **KMS-encrypted secrets** | Endpoint HMAC secrets are AES-GCM encrypted at rest; LocalStack provides the key locally | [`packages/shared/src/kms.ts`](packages/shared/src/kms.ts) |
+| **Encrypted secrets** | Endpoint HMAC secrets are AES-256-GCM encrypted at rest, in-process; the tenant id is bound in as AAD so a ciphertext can't be reused across tenants | [`packages/shared/src/cipher.ts`](packages/shared/src/cipher.ts) |
 | **PKCE auth** | SPA uses authorization-code + PKCE flow against Cognito hosted UI — no client secret in the browser | [`apps/web/src/lib/pkce.ts`](apps/web/src/lib/pkce.ts) |
 | **Cognito token verifier** | API verifies RS256 access tokens via remote JWKS; test seam accepts a local keypair (no AWS needed in CI) | [`apps/api/src/auth/cognito-token-verifier.ts`](apps/api/src/auth/cognito-token-verifier.ts) |
 
 **Honest notes:**
 - Delivery is **at-least-once, not exactly-once.** Webhook receivers should deduplicate
   on `X-Eventform-Event-Id` if they require idempotency.
-- The Debezium connector uses the admin DB user in this demo (no dedicated replication
+- Debezium Server reads the WAL as the admin DB user in this demo (no dedicated replication
   role). A production hardening step would create a minimal-privilege replication role.
-- **KMS threat model:** root of trust is `KMS_KEY_MATERIAL_FILE` on the host (mode 600,
-  backed up out-of-band). A DB dump without the key material file is ciphertext-only.
-  LocalStack Community reports `Origin=AWS_KMS` — the `EXTERNAL` origin CDK declaration
-  is honoured at the CloudFormation level; material is always imported by the boot hook.
+- **Secret-encryption threat model:** root of trust is `SECRET_ENC_KEY` (a 32-byte AES-256
+  key) held in the environment and backed up out-of-band. A DB dump without the key is
+  ciphertext-only, and the tenant id is bound in as GCM additional authenticated data, so a
+  ciphertext lifted onto another tenant's row fails to decrypt. Losing the key orphans every
+  stored endpoint secret — so back it up. (For an audited, rot-managed, HSM-backed key you'd
+  swap the cipher's implementation for real AWS KMS behind the same `SecretCipher` seam.)
 
 ---
 
@@ -116,9 +117,9 @@ pnpm install
 pnpm build
 cp .env.example .env
 
-pnpm db:up            # postgres + localstack (KMS) + kafka + kafka-connect
+pnpm db:up            # postgres + redpanda (kafka api) + debezium server
 pnpm db:migrate       # apply all Drizzle migrations (tables, roles, RLS)
-pnpm connect:register # register the Debezium outbox connector
+                      # (Debezium Server auto-streams once it's up — nothing to register)
 
 # Terminal 1 — API
 PORT=3001 node apps/api/dist/main.js
@@ -160,13 +161,13 @@ pnpm --filter @eventform/web dev
 
 | Suite | Tests | What it covers |
 |---|---|---|
-| `packages/shared` | 28 | HMAC signing/verification, event schemas (Zod), KMS encrypt/decrypt (integration, LocalStack) |
+| `packages/shared` | 30 | HMAC signing/verification, event schemas (Zod), AES-256-GCM cipher (in-process, no external deps) |
 | `packages/db` | 12 | RLS policies (integration, real Postgres) |
-| `apps/api` | 60 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
+| `apps/api` | 62 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
 | `apps/worker` | 22 | delivery processor, retry scheduler (SKIP LOCKED), backoff, pipeline e2e (real Kafka) |
-| `apps/web` | 17 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
-| `infra/cdk` | 14 | AuthStack + KmsStack CloudFormation template assertions (no AWS) |
-| **Total** | **153** | unit + integration |
+| `apps/web` | 22 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
+| `infra/cdk` | 9 | AuthStack + CertStack CloudFormation template assertions (no AWS) |
+| **Total** | **157** | unit + integration |
 | **Playwright smoke** | 2 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
 
 Run all unit/integration suites:
@@ -184,12 +185,14 @@ pnpm --filter @eventform/web exec playwright test
 ## Deployment
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checklist
-(AWS/Cognito setup, VPS provisioning, first-time bootstrap, CI/CD secrets).
+(AWS/Cognito + Neon + Cloudflare setup, SSM secrets, EC2 ASG deploy, CI/CD secrets).
 
-**Cost summary (running in production):**
-- VPS (Hetzner CX22 or equivalent): ~€4–6/month
+**Cost summary (running in production, always-on):**
+- EC2 `t4g.small` (`ap-south-1`) + 16 GB gp3 + public IPv4: ~$13/month — scale-to-zero drops this toward $0 when idle
+- Neon Postgres: $0 (free tier, with PITR backups)
 - AWS Cognito: $0 (50 000 MAU free tier)
-- AWS KMS: $0 (LocalStack runs on the VPS — no AWS KMS calls in prod)
+- Cloudflare Pages + Tunnel: $0
+- Secret encryption: $0 (in-process AES-256-GCM — no KMS, no extra service)
 - Domain: already owned
 
 ---
@@ -197,16 +200,14 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 ## Repo layout
 
 ```
-packages/shared   HMAC utils, Zod event schemas, KMS cipher
+packages/shared   HMAC utils, Zod event schemas, AES-256-GCM secret cipher
 packages/db       Drizzle schema, migrations, tenant-scoped tx helper
 apps/api          NestJS REST API — auth, forms, endpoints, public submission, deliveries
-apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
+apps/worker       Kafka-API consumer (Redpanda) + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
-infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod)
-infra/caddy       Dockerfile + Caddyfile for TLS termination + static file serving
-infra/cdk         AWS CDK: AuthStack (Cognito) + KmsStack (LocalStack KMS)
-infra/prod        bootstrap.sh — first-boot hardening
-.github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)
+infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod) + prod-local override; Debezium Server + cloudflared tunnel → api:3001
+infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack (ACM) + ComputeStack (EC2 ASG, ap-south-1)
+.github/workflows ci.yml (tests) + deploy.yml (multi-arch images + Neon migrate + ASG rollout) + deploy-web.yml (Cloudflare Pages)
 docs/DEPLOYMENT.md  Human handoff checklist
 ```
 

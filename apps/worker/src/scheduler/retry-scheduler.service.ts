@@ -8,7 +8,6 @@ import {
   Optional,
 } from "@nestjs/common";
 import { Pool } from "pg";
-import type { SubmissionReceivedEvent } from "@eventform/shared";
 import { WORKER_POOL } from "../db.module";
 import { loadConfig } from "../config";
 
@@ -50,38 +49,27 @@ export class RetryScheduler implements OnApplicationBootstrap, OnApplicationShut
     try {
       await client.query("BEGIN");
       const due = await client.query(
-        `SELECT d.*, s.answers, s.submitted_at, f.id AS form_id, f.title AS form_title
+        `SELECT d.*
          FROM deliveries d
-         JOIN submissions s ON s.id = d.submission_id
-         JOIN forms f ON f.id = s.form_id
          WHERE d.status = 'retrying' AND d.next_retry_at <= now()
          ORDER BY d.next_retry_at
          FOR UPDATE OF d SKIP LOCKED
          LIMIT 10`,
       );
       for (const row of due.rows) {
+        // Re-emit from the payload stored on the delivery row. The scheduler
+        // only rewrites the envelope (eventId, attempt) — it has no knowledge
+        // of what the event body means or which tables produced it.
         const eventId = randomUUID();
-        const payload: SubmissionReceivedEvent = {
-          eventId,
-          type: "submission.received",
-          attempt: row.attempt_count + 1,
-          tenantId: row.tenant_id,
-          formId: row.form_id,
-          formTitle: row.form_title,
-          submissionId: row.submission_id,
-          endpointId: row.endpoint_id,
-          deliveryId: row.id,
-          answers: row.answers,
-          submittedAt: new Date(row.submitted_at).toISOString(),
-        };
+        const payload = { ...row.payload, eventId, attempt: row.attempt_count + 1 };
         await client.query(
           `INSERT INTO outbox (id, tenant_id, aggregate_type, aggregate_id, event_type, payload)
-           VALUES ($1,$2,'delivery',$3,'submission.received',$4)`,
-          [eventId, row.tenant_id, row.id, JSON.stringify(payload)],
+           VALUES ($1,$2,'delivery',$3,$4,$5)`,
+          [eventId, row.tenant_id, row.id, String(row.payload.type ?? "unknown"), JSON.stringify(payload)],
         );
         await client.query(
-          "UPDATE deliveries SET status='pending', event_id=$2, next_retry_at=NULL WHERE id=$1",
-          [row.id, eventId],
+          "UPDATE deliveries SET status='pending', event_id=$2, payload=$3, next_retry_at=NULL WHERE id=$1",
+          [row.id, eventId, JSON.stringify(payload)],
         );
       }
       await client.query("COMMIT");

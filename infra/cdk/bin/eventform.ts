@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { AuthStack } from "../lib/auth-stack";
-import { BackupStack } from "../lib/backup-stack";
 import { CertStack } from "../lib/cert-stack";
-import { KmsStack } from "../lib/kms-stack";
+import { ComputeStack } from "../lib/compute-stack";
 
 const app = new cdk.App();
 
@@ -34,18 +33,14 @@ new AuthStack(app, "AuthStack", {
   authCertificate: certStack?.certificate,
 });
 
-// KmsStack — deployed to LocalStack via: cdklocal deploy KmsStack
-// See infra/cdk/lib/kms-stack.ts for the interplay with the compose boot hook.
-new KmsStack(app, "KmsStack", {
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT ?? "000000000000",
-    region: process.env.CDK_DEFAULT_REGION ?? "us-east-1",
-  },
-  description: "Eventform KMS key (EXTERNAL origin) for LocalStack",
-});
-
-// BackupStack — append-only S3 target for nightly pg_dump uploads from the VPS.
-new BackupStack(app, "BackupStack", {
+// ComputeStack — EC2 ASG (scale-to-zero capable) running the container stack.
+// Requires a default VPC + concrete account/region (CDK_DEFAULT_ACCOUNT/REGION)
+// for the VPC lookup. Deploy with: cdk deploy ComputeStack
+// Region: set CDK_DEFAULT_REGION=ap-south-1 (Mumbai) — cheapest Graviton t4g.
+// Neon has no Mumbai region, so the DB sits in ap-southeast-1 (Singapore) and the
+// API↔DB hop is cross-region (~50-65ms RTT) — fine for a demo box. To co-locate
+// with Neon instead, set CDK_DEFAULT_REGION=ap-southeast-1.
+new ComputeStack(app, "ComputeStack", {
   env,
-  description: "EventForm append-only Postgres backup bucket",
+  description: "EventForm EC2 ASG running the Docker Compose app stack",
 });

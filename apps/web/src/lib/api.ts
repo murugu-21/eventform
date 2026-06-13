@@ -113,6 +113,26 @@ async function request<T>(path: string, init: RequestInit = {}, auth = true): Pr
   return body as T;
 }
 
+/**
+ * Lightweight liveness probe. Resolves true iff the API's public /health
+ * endpoint answers 2xx within the timeout. The SPA is served from Cloudflare's
+ * CDN and stays up independently of the backend; ApiHealthGate uses this to
+ * show a friendly "instance starting" page when the VPS (behind the tunnel) is
+ * unreachable instead of letting API-dependent pages break.
+ */
+export async function checkApiHealth(timeoutMs = 5000): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_URL}/health`, { signal: ctrl.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const api = {
   me: () => request<{ tenantId: string; name: string }>("/protected/v1/me"),
   updateMe: (name: string) =>

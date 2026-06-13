@@ -16,14 +16,7 @@ export const SECRET_CIPHER = "SECRET_CIPHER";
     },
     {
       provide: SECRET_CIPHER,
-      useFactory: (): SecretCipher => {
-        const cfg = loadConfig();
-        return new SecretCipher({
-          keyId: cfg.kmsKeyId,
-          endpoint: cfg.awsEndpointUrl,
-          region: cfg.awsRegion,
-        });
-      },
+      useFactory: (): SecretCipher => new SecretCipher({ key: loadConfig().secretEncKey }),
     },
   ],
   exports: [WORKER_POOL, SECRET_CIPHER],

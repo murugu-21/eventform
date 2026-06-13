@@ -58,8 +58,8 @@ const TECH = [
   "PostgreSQL 16",
   "Drizzle ORM",
   "Debezium CDC",
-  "Apache Kafka",
-  "LocalStack KMS",
+  "Redpanda (Kafka API)",
+  "AES-256-GCM",
   "AWS CDK",
   "TypeScript",
   "Tailwind v4",
@@ -132,7 +132,7 @@ export default function LandingPage() {
           <Step
             n={3}
             title="Fan Out Webhooks"
-            body="Debezium tails the WAL and publishes to Kafka. The worker consumes events and delivers signed webhooks to every active endpoint."
+            body="Debezium tails the WAL and publishes to a Kafka-API topic on Redpanda. The worker consumes events and delivers signed webhooks to every active endpoint."
           />
         </div>
       </section>
@@ -157,7 +157,7 @@ export default function LandingPage() {
             <Arrow />
             <FlowNode label="Debezium" sub="WAL → CDC" />
             <Arrow />
-            <FlowNode label="Kafka" sub="eventform.events" />
+            <FlowNode label="Redpanda" sub="eventform.events" />
             <Arrow />
             <FlowNode label="Worker" sub="idempotent consumer" />
             <Arrow />

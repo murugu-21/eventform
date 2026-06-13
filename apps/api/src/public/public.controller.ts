@@ -3,13 +3,13 @@ import {
   Controller,
   Get,
   HttpCode,
-  Ip,
   Param,
   Post,
   UseInterceptors,
 } from "@nestjs/common";
 import { Throttle, seconds } from "@nestjs/throttler";
 import { Public } from "../auth/auth.guard";
+import { ClientIp } from "../client-ip";
 import { loadConfig } from "../config";
 import { ZodValidationPipe } from "../zod.pipe";
 import {
@@ -41,7 +41,7 @@ export class PublicController {
   submit(
     @ValidatedForm() form: ResolvedForm,
     @Body(new ZodValidationPipe(submitBodySchema)) body: SubmitBodyDto,
-    @Ip() ip: string,
+    @ClientIp() ip: string,
   ) {
     return this.service.submit(form, body.answers, ip);
   }

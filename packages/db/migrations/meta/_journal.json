@@ -15,6 +15,13 @@
       "when": 1781171418879,
       "tag": "0001_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781257818879,
+      "tag": "0002_generic_delivery_payload",
+      "breakpoints": true
     }
   ]
 }
