@@ -43,7 +43,7 @@ export class ComputeStack extends cdk.Stack {
     // No inbound rules — the tunnel is outbound-only and access is via SSM.
     const securityGroup = new ec2.SecurityGroup(this, "InstanceSg", {
       vpc,
-      description: "EventForm app box — no inbound; egress all (tunnel dials out)",
+      description: "EventForm app box - no inbound; egress all (tunnel dials out)",
       allowAllOutbound: true,
     });
 
@@ -130,7 +130,7 @@ export class ComputeStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "AsgName", {
       value: asg.autoScalingGroupName,
-      description: "Scale 0↔1 with: aws autoscaling set-desired-capacity --auto-scaling-group-name <this> --desired-capacity {0|1}",
+      description: "Scale 0<->1 with: aws autoscaling set-desired-capacity --auto-scaling-group-name <this> --desired-capacity {0|1}",
     });
 
     // ── GitHub Actions OIDC: a keyless deploy role for the `rollout` job ────────
@@ -152,7 +152,7 @@ export class ComputeStack extends cdk.Stack {
 
     const deployRole = new iam.Role(this, "GithubDeployRole", {
       roleName: "eventform-github-deploy",
-      description: "Assumed by GitHub Actions (OIDC) to roll the EventForm ASG — no static keys",
+      description: "Assumed by GitHub Actions (OIDC) to roll the EventForm ASG - no static keys",
       maxSessionDuration: cdk.Duration.hours(1),
       assumedBy: new iam.OpenIdConnectPrincipal(oidcProvider, {
         StringEquals: {
