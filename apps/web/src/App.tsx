@@ -19,6 +19,7 @@ import DeliveriesPage from "@/pages/deliveries";
 
 // Layout
 import Layout from "@/components/layout";
+import { ApiHealthGate } from "@/components/api-health-gate";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,31 +34,35 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            {/* Public routes */}
+            {/* Always available — served from the CDN, no backend needed */}
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/forms/:slug" element={<PublicFormPage />} />
+
+            {/* Backend-dependent routes sit behind a health gate: if the API
+                (on the VPS, behind the tunnel) is down or starting up, these
+                render a friendly reconnecting page instead of breaking. */}
+            <Route element={<ApiHealthGate />}>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/forms/:slug" element={<PublicFormPage />} />
+              <Route
+                path="/app"
+                element={
+                  <RequireAuth>
+                    <Layout />
+                  </RequireAuth>
+                }
+              >
+                <Route index element={<DashboardPage />} />
+                <Route path="forms/:id" element={<FormBuilderPage />} />
+                <Route path="forms/:id/submissions" element={<SubmissionsPage />} />
+                <Route path="responses" element={<ResponsesPage />} />
+                <Route path="endpoints" element={<EndpointsPage />} />
+                <Route path="deliveries" element={<DeliveriesPage />} />
+              </Route>
+            </Route>
 
             {/* Catch-all */}
             <Route path="*" element={<NotFoundPage />} />
-
-            {/* Authenticated app shell */}
-            <Route
-              path="/app"
-              element={
-                <RequireAuth>
-                  <Layout />
-                </RequireAuth>
-              }
-            >
-              <Route index element={<DashboardPage />} />
-              <Route path="forms/:id" element={<FormBuilderPage />} />
-              <Route path="forms/:id/submissions" element={<SubmissionsPage />} />
-              <Route path="responses" element={<ResponsesPage />} />
-              <Route path="endpoints" element={<EndpointsPage />} />
-              <Route path="deliveries" element={<DeliveriesPage />} />
-            </Route>
           </Routes>
         </BrowserRouter>
         <Toaster />

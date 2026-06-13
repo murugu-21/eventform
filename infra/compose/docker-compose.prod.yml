@@ -12,7 +12,6 @@
 #                            access key for the eventform-backup IAM user (PutObject-only)
 #
 # Optional overrides (have defaults):
-#   WEB_HOST                 default: eventform.murugappan.dev
 #   API_HOST                 default: eventform-api.murugappan.dev
 #   AWS_REGION               default: us-east-1
 
@@ -236,8 +235,8 @@ services:
         condition: service_healthy
     # No published ports: ALL inbound traffic arrives via the cloudflared
     # tunnel (outbound-only connection). The VPS firewall can drop 80/443.
+    # Caddy proxies the API only; the SPA is on Cloudflare Pages.
     environment:
-      WEB_HOST: ${WEB_HOST:-eventform.murugappan.dev}
       API_HOST: ${API_HOST:-eventform-api.murugappan.dev}
     volumes:
       - caddy_data:/data

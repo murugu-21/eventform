@@ -3,9 +3,13 @@
 This is the step-by-step handoff checklist to get eventform running at
 `eventform.murugappan.dev` / `eventform-api.murugappan.dev` on a generic VPS.
 
-**AWS is used only for Cognito (free tier).** Everything else — Kafka, KMS,
-Postgres, Caddy — runs inside Docker on the VPS. There is no EC2, no ECS,
-no RDS.
+**AWS is used only for Cognito (free tier).** The backend — Kafka API
+(Redpanda), Debezium, KMS, Postgres, the API/worker, and a Caddy API proxy —
+runs inside Docker on the VPS. There is no EC2, no ECS, no RDS. The **frontend
+(SPA) is hosted on Cloudflare Pages**, a global CDN that stays up independently
+of the VPS, so the site shell loads even when the backend is down or restarting
+(API-dependent pages show a "waking up the backend" reconnecting screen via the
+SPA's `ApiHealthGate`; the landing page always renders).
 
 ---
 
@@ -65,13 +69,13 @@ CDK will print three outputs — save them:
 |---|---|---|
 | `AuthStack.IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/<poolId>` | `COGNITO_ISSUER` env var |
 | `AuthStack.ClientId` | Cognito app client ID | `COGNITO_CLIENT_ID` env var |
-| `AuthStack.HostedDomainUrl` | `https://eventform-auth.auth.us-east-1.amazoncognito.com` | `VITE_COGNITO_DOMAIN` build arg (Caddy image) |
+| `AuthStack.HostedDomainUrl` | `https://eventform-auth.auth.us-east-1.amazoncognito.com` | `VITE_COGNITO_DOMAIN` (Pages build var) |
 
-**Branded domain:** with CertStack deployed (`-c customAuthDomain=auth.murugappan.dev`), use `https://auth.murugappan.dev` as `VITE_COGNITO_DOMAIN` (already the Caddy image default) instead of the amazoncognito.com hosted domain.
+**Branded domain:** with CertStack deployed (`-c customAuthDomain=auth.murugappan.dev`), use `https://auth.murugappan.dev` as `VITE_COGNITO_DOMAIN` instead of the amazoncognito.com hosted domain.
 
-**Note:** The Caddy image bakes the Cognito domain into the static JS bundle at
-build time (Vite env vars). Re-building the Caddy image is required if the Cognito
-domain ever changes.
+**Note:** The SPA bakes the Cognito domain (and API URL) into the static bundle
+at build time from `VITE_*` repository Variables. A re-deploy of the Pages site
+(re-run the **Deploy Web** workflow) is required if any `VITE_*` value changes.
 
 ---
 
@@ -97,13 +101,39 @@ ACME/Let's Encrypt needed). The tunnel is free.
 1. [Cloudflare dashboard](https://one.dash.cloudflare.com) → **Networks →
    Tunnels → Create a tunnel** (Cloudflared connector). Name it `eventform`.
 2. Copy the **tunnel token** — it goes into the VPS `.env` as `TUNNEL_TOKEN`.
-3. Under **Public Hostnames**, add two routes (both to the same service):
-   - `eventform.murugappan.dev` → `HTTP://caddy:80`
+3. Under **Public Hostnames**, add a single route for the **API only**:
    - `eventform-api.murugappan.dev` → `HTTP://caddy:80`
-   Cloudflare creates the (proxied) CNAME records automatically.
+   Cloudflare creates the (proxied) CNAME record automatically.
+
+   The web hostname (`eventform.murugappan.dev`) is **not** on the tunnel — it
+   is served by Cloudflare Pages (Step 4b). If you migrated from the old
+   SPA-on-Caddy setup, delete the `eventform.murugappan.dev` tunnel hostname so
+   Pages can own that DNS record.
 
 Note: `auth.murugappan.dev` (Cognito) is unrelated to the tunnel — its
 DNS-only CNAME to CloudFront stays exactly as configured.
+
+### Step 4b: Frontend on Cloudflare Pages
+
+The SPA deploys to Cloudflare Pages via the **Deploy Web** GitHub Action
+(`.github/workflows/deploy-web.yml`), which builds the Vite bundle and uploads
+it with Wrangler. One-time setup:
+
+1. **Create the Pages project** (once): `npx wrangler pages project create eventform`
+   (or dashboard → **Workers & Pages → Create → Pages**). Project name must be
+   `eventform` to match the workflow.
+2. **Custom domain:** Pages project → **Custom domains** → add
+   `eventform.murugappan.dev`. Cloudflare points the CNAME at the Pages site.
+   (Remove the old tunnel hostname for it first, per Step 4 above.)
+3. **GitHub secrets** (repo → Settings → Environments → `production`):
+   - `CLOUDFLARE_API_TOKEN` — a token with the *Cloudflare Pages: Edit* permission.
+   - `CLOUDFLARE_ACCOUNT_ID` — your account ID.
+4. **Repository Variables** (same `VITE_*` set used by the build) drive the
+   bundle — see Step 6.
+
+The build emits `apps/web/dist`, including a `_redirects` file that makes Pages
+serve `index.html` for client-side routes (`/app`, `/forms/:slug`, …). If the
+secrets aren't set, the workflow posts a notice and skips — it never fails the run.
 
 ### Optional cloud-init snippet (Ubuntu 22.04/24.04)
 
@@ -150,8 +180,7 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
 | `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
 | `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
-| `WEB_HOST` | *(optional)* Web hostname; default `eventform.murugappan.dev` | |
-| `API_HOST` | *(optional)* API hostname; default `eventform-api.murugappan.dev` | |
+| `API_HOST` | *(optional)* API hostname for the Caddy proxy; default `eventform-api.murugappan.dev` | |
 | `AWS_REGION` | *(optional)* AWS region; default `us-east-1` | |
 
 > **First-boot order matters.** KMS key material must exist *before* compose
@@ -242,7 +271,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 The `connect-init` one-shot service registers the connector and exits.
-Caddy obtains TLS certificates automatically; allow 30–60 s for ACME.
+TLS is terminated at Cloudflare's edge (Caddy runs with `auto_https off`), so
+there are no certificates to obtain on the box.
 
 ---
 
@@ -253,24 +283,30 @@ Configure these in **Settings → Secrets and variables → Actions** under a
 
 ### Secrets
 
-| Secret | Value |
-|---|---|
-| `VPS_HOST` | VPS IPv4 or hostname |
-| `VPS_USER` | SSH user (e.g. `ubuntu`) |
-| `VPS_SSH_KEY` | Private SSH key (PEM format; the corresponding public key must be in `~/.ssh/authorized_keys` on the VPS) |
+| Secret | Used by | Value |
+|---|---|---|
+| `VPS_HOST` | `deploy.yml` (backend) | VPS IPv4 or hostname |
+| `VPS_USER` | `deploy.yml` (backend) | SSH user (e.g. `opc` on Oracle Linux, `ubuntu` on Ubuntu) |
+| `VPS_SSH_KEY` | `deploy.yml` (backend) | Private SSH key (PEM; matching public key in `~/.ssh/authorized_keys` on the VPS) |
+| `CLOUDFLARE_API_TOKEN` | `deploy-web.yml` (Pages) | Token with the *Cloudflare Pages: Edit* permission |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-web.yml` (Pages) | Cloudflare account ID |
 
-### Repository variables (used as Caddy image build args)
+### Repository variables (baked into the SPA at build time by `deploy-web.yml`)
 
 | Variable | Value |
 |---|---|
-| `VITE_COGNITO_DOMAIN` | `https://eventform-auth.auth.us-east-1.amazoncognito.com` |
+| `VITE_API_URL` | `https://eventform-api.murugappan.dev` |
+| `VITE_AUTH_MODE` | `cognito` |
+| `VITE_COGNITO_DOMAIN` | `https://auth.murugappan.dev` (branded) or the amazoncognito.com hosted domain |
 | `VITE_COGNITO_CLIENT_ID` | Your Cognito app client ID |
 | `VITE_REDIRECT_URI` | `https://eventform.murugappan.dev/auth/callback` |
 
-**Note on the VPS_HOST secret gate:** GitHub Actions does not allow evaluating
-secrets directly in `if:` conditions. The deploy workflow uses an env-var
-indirection (`VPS_HOST_CONFIGURED`) — if the secret is absent the deploy job
-posts a workflow notice and exits cleanly rather than failing.
+**Two independent deploys:** `deploy.yml` ships the backend images to the VPS on
+`v*` tags; `deploy-web.yml` ships the SPA to Cloudflare Pages on web changes
+pushed to `main`. Both gate on their secrets — if `VPS_HOST` (resp.
+`CLOUDFLARE_API_TOKEN`) is absent, that job posts a workflow notice and exits
+cleanly rather than failing (GitHub doesn't allow secrets directly in `if:`, so
+each maps the secret to an env var and checks that).
 
 Once secrets are set, push a `v*` tag to trigger a full build + deploy:
 
@@ -287,13 +323,16 @@ Or trigger manually via **Actions → Deploy → Run workflow**.
 
 After the first deploy, verify the following manually:
 
-- [ ] `https://eventform.murugappan.dev` loads the React SPA (green padlock)
+- [ ] `https://eventform.murugappan.dev` loads the React SPA from Pages (green padlock)
 - [ ] `https://eventform-api.murugappan.dev/health` returns `{"status":"ok"}`
 - [ ] Clicking **Continue with Google** redirects to accounts.google.com
 - [ ] After Google sign-in, the SPA lands on `/app` (Cognito PKCE flow completes)
 - [ ] Create a form, publish it, copy the public link
 - [ ] Submit the public form anonymously
 - [ ] The delivery appears as `delivered` in the Deliveries dashboard
+- [ ] **Resilience:** stop the backend (`docker compose -f docker-compose.prod.yml stop api`),
+      reload `/login` — it shows "Waking up the backend" with the contact email; the
+      landing page (`/`) still loads. Start the API again → the page reconnects on its own.
 
 ### Recruiter demo script (5 minutes)
 

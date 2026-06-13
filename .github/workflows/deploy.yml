@@ -69,9 +69,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & Push Caddy image
-        # VITE_* vars are baked into the image at build time; read from repository Variables
-        # (Settings → Secrets and variables → Actions → Variables tab).
-        # NOTE: these are not sensitive — they are public OAuth client config baked into the SPA.
+        # Caddy now only reverse-proxies the API (the SPA lives on Cloudflare
+        # Pages — see deploy-web.yml), so this image is config-only: no Vite
+        # build, no VITE_* args.
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -81,12 +81,6 @@ jobs:
             ${{ env.IMAGE_PREFIX }}-caddy:latest
             ${{ env.IMAGE_PREFIX }}-caddy:${{ steps.meta.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_API_URL=${{ vars.VITE_API_URL }}
-            VITE_AUTH_MODE=${{ vars.VITE_AUTH_MODE }}
-            VITE_COGNITO_DOMAIN=${{ vars.VITE_COGNITO_DOMAIN }}
-            VITE_COGNITO_CLIENT_ID=${{ vars.VITE_COGNITO_CLIENT_ID }}
-            VITE_REDIRECT_URI=${{ vars.VITE_REDIRECT_URI }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

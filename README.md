@@ -15,10 +15,12 @@ graph LR
         SPA["React 19 SPA\n(PKCE auth)"]
     end
 
-    subgraph Caddy["Caddy (TLS termination)"]
-        direction TB
-        StaticFiles["Static files\n(web)"]
-        Proxy["API proxy\n(eventform-api.*)"]
+    subgraph Pages["Cloudflare Pages (CDN)"]
+        Bundle["Static SPA bundle\n+ ApiHealthGate fallback"]
+    end
+
+    subgraph Caddy["Caddy (API reverse proxy)"]
+        Proxy["eventform-api.*"]
     end
 
     subgraph API["NestJS API (app_api role)"]
@@ -35,7 +37,7 @@ graph LR
         Connector["eventform-outbox\nconnector"]
     end
 
-    subgraph Kafka["Kafka (KRaft)"]
+    subgraph Kafka["Redpanda (Kafka API)"]
         Topic["eventform.events"]
     end
 
@@ -56,6 +58,7 @@ graph LR
         KMS["KMS key\nalias/eventform-endpoint-secrets"]
     end
 
+    Pages -->|"serves SPA bundle"| SPA
     SPA -->|"PKCE code flow"| Cognito
     SPA -->|"Bearer access token"| Caddy
     Caddy --> API
@@ -203,7 +206,7 @@ apps/api          NestJS REST API — auth, forms, endpoints, public submission,
 apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
 infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod)
-infra/caddy       Dockerfile + Caddyfile for TLS termination + static file serving
+infra/caddy       Dockerfile + Caddyfile — API reverse proxy (SPA is on Cloudflare Pages)
 infra/cdk         AWS CDK: AuthStack (Cognito) + KmsStack (LocalStack KMS)
 infra/prod        bootstrap.sh — first-boot hardening
 .github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)
