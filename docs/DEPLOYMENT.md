@@ -1,364 +1,259 @@
-# Eventform Deployment Guide
+# EventForm Deployment Guide
 
-This is the step-by-step handoff checklist to get eventform running at
-`eventform.murugappan.dev` / `eventform-api.murugappan.dev` on a generic VPS.
+Step-by-step runbook to deploy EventForm at `eventform.murugappan.dev` /
+`eventform-api.murugappan.dev`.
 
-**AWS is used only for Cognito (free tier).** The backend — Kafka API
-(Redpanda), Debezium, Postgres, and the API/worker — runs inside Docker on the
-VPS; `cloudflared` routes the tunnel straight to the API (no reverse proxy).
-Endpoint secrets are encrypted with in-process AES-256-GCM (no KMS, no
-LocalStack). There is no EC2, no ECS, no RDS. The **frontend
-(SPA) is hosted on Cloudflare Pages**, a global CDN that stays up independently
-of the VPS, so the site shell loads even when the backend is down or restarting
-(API-dependent pages show a "waking up the backend" reconnecting screen via the
-SPA's `ApiHealthGate`; the landing page always renders).
+**Architecture at a glance:**
+
+| Layer | Where it runs |
+|---|---|
+| Frontend (SPA) | **Cloudflare Pages** (global CDN; always up, independent of the backend) |
+| Ingress | **Cloudflare Tunnel** → `api:3001` directly (outbound-only, zero inbound ports, no reverse proxy) |
+| Compute (API + worker + Redpanda + Debezium) | **AWS EC2 Auto Scaling Group** (Graviton `t4g.small`), Docker Compose, `ap-southeast-1` |
+| Database | **Neon** (managed serverless Postgres + PITR), `ap-southeast-1` |
+| Auth | **AWS Cognito** + Google IdP (free tier), `us-east-1` |
+| Endpoint-secret encryption | In-process **AES-256-GCM** (no KMS, no LocalStack) |
+| Secrets at boot | **AWS SSM Parameter Store** (`/eventform/*`, SecureString) |
+
+The EC2 box is **stateless** — Postgres is on Neon and the only on-box state
+(the Redpanda log) is disposable, so the ASG can recycle/scale it freely. No
+credentials are committed anywhere: the DB migration creates roles password-less
+and passwords are applied from env.
+
+> **Regions:** Neon and the EC2 ASG both live in **`ap-southeast-1`** (Singapore)
+> so the API↔DB hop is in-region. Cognito stays in **`us-east-1`** (and CertStack,
+> if used, *must* be us-east-1 for CloudFront) — JWKS is fetched cross-region and
+> cached, which is fine.
 
 ---
 
-## Step 1: AWS account + CDK bootstrap
+## Prerequisites (one-time accounts)
 
-You need an AWS account. Cognito stays well within the free tier (50 000 MAU).
+- **AWS account** with the CLI configured (`aws configure`).
+- **Neon account** (https://neon.com).
+- **Cloudflare account** with `murugappan.dev` on Cloudflare DNS.
+- **Google Cloud OAuth client** (for Cognito federation).
+- Node 22 + pnpm locally.
+
+---
+
+## Step 1 — AWS: bootstrap CDK (both regions)
 
 ```bash
-# Install the AWS CLI and configure credentials for your account
-aws configure
-
-# Bootstrap CDK in your target region (us-east-1 recommended for Cognito)
-cd infra/cdk
-pnpm install
-pnpm exec cdk bootstrap aws://ACCOUNT_ID/us-east-1
+cd infra/cdk && pnpm install
+pnpm exec cdk bootstrap aws://ACCOUNT_ID/us-east-1       # Cognito (+ CertStack)
+pnpm exec cdk bootstrap aws://ACCOUNT_ID/ap-southeast-1  # ComputeStack
 ```
 
-CDK bootstrap provisions the S3 bucket and IAM roles that `cdk deploy` uses.
-This is a one-time per-account/region step.
+## Step 2 — Google OAuth client
 
----
-
-## Step 2: Google Cloud OAuth client
-
-Cognito uses Google as the identity provider. You need a Google OAuth 2.0
-client to hand to CDK.
-
-1. Open [Google Cloud Console](https://console.cloud.google.com) →
-   **APIs & Services** → **Credentials** → **Create credentials** →
-   **OAuth 2.0 Client ID**.
-2. Application type: **Web application**.
-3. Add the following to **Authorized redirect URIs**:
+1. [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services
+   → Credentials → Create credentials → OAuth 2.0 Client ID** (Web application).
+2. Authorized redirect URI:
    ```
    https://<cognitoDomainPrefix>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
    ```
-   Replace `<cognitoDomainPrefix>` with the value you will pass to CDK
-   (default: `eventform-auth`).
-4. Save the **Client ID** and **Client Secret** — you will pass them to CDK
-   in the next step.
+   (default prefix `eventform-auth`; if using the branded `auth.murugappan.dev`
+   domain, also add its `/oauth2/idpresponse`).
+3. Save the **Client ID** and **Client Secret**.
 
----
-
-## Step 3: Deploy AuthStack to AWS
+## Step 3 — Deploy AuthStack (Cognito, us-east-1)
 
 ```bash
 cd infra/cdk
-pnpm exec cdk deploy AuthStack \
+CDK_DEFAULT_REGION=us-east-1 pnpm exec cdk deploy AuthStack \
   -c googleClientId=YOUR_GOOGLE_CLIENT_ID \
   -c googleClientSecret=YOUR_GOOGLE_CLIENT_SECRET \
   -c cognitoDomainPrefix=eventform-auth \
   -c webHost=eventform.murugappan.dev
+# branded hosted UI (optional): also deploy CertStack with -c customAuthDomain=auth.murugappan.dev
 ```
 
-CDK will print three outputs — save them:
+Save the outputs: `IssuerUrl` → `COGNITO_ISSUER`, `ClientId` → `COGNITO_CLIENT_ID`,
+hosted domain → `VITE_COGNITO_DOMAIN`.
 
-| Output | Description | Used in |
-|---|---|---|
-| `AuthStack.IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/<poolId>` | `COGNITO_ISSUER` env var |
-| `AuthStack.ClientId` | Cognito app client ID | `COGNITO_CLIENT_ID` env var |
-| `AuthStack.HostedDomainUrl` | `https://eventform-auth.auth.us-east-1.amazoncognito.com` | `VITE_COGNITO_DOMAIN` (Pages build var) |
+## Step 4 — Neon (database)
 
-**Branded domain:** with CertStack deployed (`-c customAuthDomain=auth.murugappan.dev`), use `https://auth.murugappan.dev` as `VITE_COGNITO_DOMAIN` instead of the amazoncognito.com hosted domain.
+1. **Create a project** in **`ap-southeast-1`** (Singapore).
+2. **Enable logical replication** (Project → Settings → **Logical replication**).
+   Debezium CDC requires `wal_level=logical`; without it the connector cannot
+   create its replication slot.
+3. Grab two connection strings from the Neon console:
+   - **DIRECT** endpoint (the non-`-pooler` host) → `DATABASE_URL` (owner role,
+     e.g. `neondb_owner`). **Debezium and migrations must use the direct host** —
+     logical replication does not work through Neon's pooler.
+   - The **pooled** endpoint is fine for the app roles (Step 4b).
+4. **Run migrations** against Neon (creates tables, RLS, and the
+   password-less `app_api`/`app_worker` roles):
+   ```bash
+   DATABASE_URL='postgres://<owner>:<pw>@<direct-host>/neondb?sslmode=require' pnpm db:migrate
+   ```
 
-**Note:** The SPA bakes the Cognito domain (and API URL) into the static bundle
-at build time from `VITE_*` repository Variables. A re-deploy of the Pages site
-(re-run the **Deploy Web** workflow) is required if any `VITE_*` value changes.
+### Step 4b — Set app-role passwords (one-time) and assemble app URLs
 
----
-
-## Step 4: VPS — provider, sizing, DNS, cloud-init
-
-### Provider comparison (pick one)
-
-| Provider | Instance | RAM | Cost | Notes |
-|---|---|---|---|---|
-| Hetzner | CX22 | 4 GB | ~€4.5/mo | Best price/performance for EU |
-| DigitalOcean | Droplet Basic | 2 GB | ~$6/mo | Simple UI, good docs |
-| Vultr | Cloud Compute | 2 GB | ~$6/mo | US + EU locations |
-
-**Minimum:** 2 GB RAM. Kafka + Debezium together use ~700 MB.
-
-### Cloudflare Tunnel (replaces public DNS + open ports)
-
-All inbound traffic arrives via an outbound-only Cloudflare Tunnel — the VPS
-publishes **no ports** (the firewall can drop everything except SSH), the
-origin IP is never in DNS, and TLS is terminated at Cloudflare's edge (no
-ACME/Let's Encrypt needed). The tunnel is free.
-
-1. [Cloudflare dashboard](https://one.dash.cloudflare.com) → **Networks →
-   Tunnels → Create a tunnel** (Cloudflared connector). Name it `eventform`.
-2. Copy the **tunnel token** — it goes into the VPS `.env` as `TUNNEL_TOKEN`.
-3. Under **Public Hostnames**, add a single route for the **API only**:
-   - `eventform-api.murugappan.dev` → `HTTP://api:3001`
-   Cloudflare creates the (proxied) CNAME record automatically. (`cloudflared`
-   shares the compose network, so it resolves the `api` service directly — no
-   reverse proxy in between.)
-
-   The web hostname (`eventform.murugappan.dev`) is **not** on the tunnel — it
-   is served by Cloudflare Pages (Step 4b). If you migrated from an older
-   tunnel-hostname setup, delete the `eventform.murugappan.dev` tunnel hostname
-   so Pages can own that DNS record.
-
-Note: `auth.murugappan.dev` (Cognito) is unrelated to the tunnel — its
-DNS-only CNAME to CloudFront stays exactly as configured.
-
-### Step 4b: Frontend on Cloudflare Pages
-
-The SPA deploys to Cloudflare Pages via the **Deploy Web** GitHub Action
-(`.github/workflows/deploy-web.yml`), which builds the Vite bundle and uploads
-it with Wrangler. One-time setup:
-
-1. **Create the Pages project** (once): `npx wrangler pages project create eventform`
-   (or dashboard → **Workers & Pages → Create → Pages**). Project name must be
-   `eventform` to match the workflow.
-2. **Custom domain:** Pages project → **Custom domains** → add
-   `eventform.murugappan.dev`. Cloudflare points the CNAME at the Pages site.
-   (Remove the old tunnel hostname for it first, per Step 4 above.)
-3. **GitHub secrets** (repo → Settings → Environments → `production`):
-   - `CLOUDFLARE_API_TOKEN` — a token with the *Cloudflare Pages: Edit* permission.
-   - `CLOUDFLARE_ACCOUNT_ID` — your account ID.
-4. **Repository Variables** (same `VITE_*` set used by the build) drive the
-   bundle — see Step 6.
-
-The build emits `apps/web/dist`, including a `_redirects` file that makes Pages
-serve `index.html` for client-side routes (`/app`, `/forms/:slug`, …). If the
-secrets aren't set, the workflow posts a notice and skips — it never fails the run.
-
-### Optional cloud-init snippet (Ubuntu 22.04/24.04)
-
-Paste this as **User data** when creating the VPS to auto-install Docker and
-clone the repo:
-
-```yaml
-#cloud-config
-packages:
-  - docker.io
-  - docker-compose-plugin
-  - git
-runcmd:
-  - systemctl enable --now docker
-  - usermod -aG docker ubuntu
-  - mkdir -p /opt/eventform
-  - git clone https://github.com/murugu-21/eventform /opt/eventform
-  - chown -R ubuntu:ubuntu /opt/eventform
-```
-
-SSH in as `ubuntu` after the VPS boots (~90 s).
-
----
-
-## Step 5: First-time setup on the VPS
-
-### 5a. Write the `.env` file
+The migration creates `app_api`/`app_worker` with **no password**. Apply real
+passwords from env, then build the app connection URLs:
 
 ```bash
-cd /opt/eventform/infra/compose
-cp /dev/null .env   # start empty
+DATABASE_URL='postgres://<owner>:<pw>@<direct-host>/neondb?sslmode=require' \
+APP_API_PASSWORD='<strong-secret>' \
+APP_WORKER_PASSWORD='<strong-secret>' \
+pnpm db:roles
 ```
 
-Edit `.env` with the following variables. All are required unless marked optional.
+Then:
+- `DATABASE_URL_API`    = `postgres://app_api:<APP_API_PASSWORD>@<pooled-host>/neondb?sslmode=require`
+- `DATABASE_URL_WORKER` = `postgres://app_worker:<APP_WORKER_PASSWORD>@<pooled-host>/neondb?sslmode=require`
 
-| Variable | Description | Example |
-|---|---|---|
-| `DB_ADMIN_PASSWORD` | Postgres superuser password | `$(openssl rand -hex 20)` |
-| `APP_API_PASSWORD` | Password for the `app_api` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
-| `APP_WORKER_PASSWORD` | Password for the `app_worker` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
-| `SECRET_ENC_KEY` | Base64 32-byte AES-256 key for endpoint-secret encryption (AES-256-GCM, in-process) | `$(head -c 32 /dev/urandom \| base64)` |
-| `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
-| `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
-| `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
+(Neon passwords must satisfy its complexity policy — use real generated secrets,
+not the placeholders.)
 
-> **First-boot order matters.** The `app_api`/`app_worker` roles must exist
-> *before* their passwords can be rotated (the migration creates them). Run
-> 5b → 5h in order; each step is idempotent and safe to re-run.
+## Step 5 — Secrets into SSM Parameter Store (ap-southeast-1)
 
-### 5b. Generate the secret-encryption key (once)
-
-Endpoint HMAC secrets are encrypted at rest with AES-256-GCM, in-process (no
-KMS, no LocalStack). Generate a 32-byte key once and keep it in `.env` as
-`SECRET_ENC_KEY` — **back it up out of band** (a DB dump without this key is
-ciphertext-only, and losing it orphans every stored endpoint secret):
+The EC2 instance reads these at boot (its IAM role grants read on `/eventform/*`).
+Create each as a **SecureString** in **`ap-southeast-1`**:
 
 ```bash
-echo "SECRET_ENC_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
+R=ap-southeast-1
+put() { aws ssm put-parameter --region $R --type SecureString --overwrite --name "$1" --value "$2"; }
+put /eventform/database-url        'postgres://<owner>:<pw>@<direct-host>/neondb?sslmode=require'
+put /eventform/database-url-api    'postgres://app_api:<pw>@<pooled-host>/neondb?sslmode=require'
+put /eventform/database-url-worker 'postgres://app_worker:<pw>@<pooled-host>/neondb?sslmode=require'
+put /eventform/secret-enc-key      "$(head -c 32 /dev/urandom | base64)"
+put /eventform/tunnel-token        '<cloudflare-tunnel-token>'   # from Step 6
+put /eventform/cognito-issuer      '<AuthStack IssuerUrl>'
+put /eventform/cognito-client-id   '<AuthStack ClientId>'
 ```
 
-### 5c. Start the infra tier
+> **Back up `secret-enc-key` out of band.** A Neon dump without it is
+> ciphertext-only for endpoint secrets, and losing it orphans every stored secret.
 
-```bash
-cd /opt/eventform/infra/compose
-docker compose -f docker-compose.prod.yml up -d postgres kafka connect
-docker compose -f docker-compose.prod.yml wait postgres kafka connect
-```
+## Step 6 — Cloudflare (Pages + Tunnel)
 
-### 5d. Run migrations (creates tables, roles, RLS policies)
+**Pages (frontend):**
+1. Create the project: `npx wrangler pages project create eventform` (name must
+   be `eventform` to match `deploy-web.yml`).
+2. Pages → **Custom domains** → add `eventform.murugappan.dev`.
 
-```bash
-docker compose -f docker-compose.prod.yml run --rm migrate
-```
+**Tunnel (API ingress):**
+1. Dashboard → **Networks → Tunnels → Create a tunnel** (Cloudflared). Name it
+   `eventform`; copy the **token** into SSM as `/eventform/tunnel-token` (Step 5).
+2. **Public Hostnames** → add `eventform-api.murugappan.dev` → `HTTP://api:3001`
+   (cloudflared shares the compose network and reaches the `api` service directly).
+   Do **not** add a hostname for `eventform.murugappan.dev` — Pages owns it.
 
-The `migrate` service uses profile `setup`; you can also run
-`docker compose -f docker-compose.prod.yml --profile setup up migrate`.
+`auth.murugappan.dev` (Cognito) is unrelated to the tunnel — its DNS-only CNAME
+to CloudFront stays as configured.
 
-### 5e. Harden the database (rotate role passwords + revoke CREATE)
+## Step 7 — Build & publish images, deploy the SPA
 
-Runs *after* migrations, because it alters the `app_api`/`app_worker` roles the
-migration just created. It refuses to run (with a clear message) if those roles
-or the postgres container are missing.
+Configure GitHub **Settings → Secrets and variables → Actions** (`production` env):
 
-```bash
-export DB_ADMIN_PASSWORD=...      # same value as in .env
-export APP_API_PASSWORD=...       # same value as in .env
-export APP_WORKER_PASSWORD=...    # same value as in .env
-bash /opt/eventform/infra/prod/bootstrap.sh
-```
+| Secret | Used by |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` (scope: *Cloudflare Pages: Edit*) | `deploy-web.yml` |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-web.yml` |
 
-### 5f. Register the Debezium connector
-
-The `connect-init` service is a one-shot `curl` container that registers the
-connector on every `compose up`. It starts automatically with the full stack (step 5h).
-
-In prod the connector config is `infra/compose/connect/eventform-outbox-prod.json`,
-which substitutes `${DB_ADMIN_PASSWORD}` at registration time.
-
-### 5h. Start the full application stack
-
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-The `connect-init` one-shot service registers the connector and exits.
-TLS is terminated at Cloudflare's edge and the tunnel reaches the API directly,
-so there are no certificates to obtain and no reverse proxy on the box.
-
----
-
-## Step 6: GitHub repository secrets and variables
-
-Configure these in **Settings → Secrets and variables → Actions** under a
-`production` environment.
-
-### Secrets
-
-| Secret | Used by | Value |
-|---|---|---|
-| `VPS_HOST` | `deploy.yml` (backend) | VPS IPv4 or hostname |
-| `VPS_USER` | `deploy.yml` (backend) | SSH user (e.g. `opc` on Oracle Linux, `ubuntu` on Ubuntu) |
-| `VPS_SSH_KEY` | `deploy.yml` (backend) | Private SSH key (PEM; matching public key in `~/.ssh/authorized_keys` on the VPS) |
-| `CLOUDFLARE_API_TOKEN` | `deploy-web.yml` (Pages) | Token with the *Cloudflare Pages: Edit* permission |
-| `CLOUDFLARE_ACCOUNT_ID` | `deploy-web.yml` (Pages) | Cloudflare account ID |
-
-### Repository variables (baked into the SPA at build time by `deploy-web.yml`)
-
-| Variable | Value |
+| Repository Variable | Value |
 |---|---|
 | `VITE_API_URL` | `https://eventform-api.murugappan.dev` |
 | `VITE_AUTH_MODE` | `cognito` |
 | `VITE_COGNITO_DOMAIN` | `https://auth.murugappan.dev` (branded) or the amazoncognito.com hosted domain |
-| `VITE_COGNITO_CLIENT_ID` | Your Cognito app client ID |
+| `VITE_COGNITO_CLIENT_ID` | Cognito app client ID |
 | `VITE_REDIRECT_URI` | `https://eventform.murugappan.dev/auth/callback` |
 
-**Two independent deploys:** `deploy.yml` ships the backend images to the VPS on
-`v*` tags; `deploy-web.yml` ships the SPA to Cloudflare Pages on web changes
-pushed to `main`. Both gate on their secrets — if `VPS_HOST` (resp.
-`CLOUDFLARE_API_TOKEN`) is absent, that job posts a workflow notice and exits
-cleanly rather than failing (GitHub doesn't allow secrets directly in `if:`, so
-each maps the secret to an env var and checks that).
+- **Backend images:** push a `v*` tag → `deploy.yml` builds **multi-arch
+  (amd64 + arm64)** images to GHCR (`ghcr.io/murugu-21/eventform-*`). Ensure the
+  packages are **public** (GHCR → package → visibility) so the EC2 box can pull
+  without auth.
+  ```bash
+  git tag v1.0.0 && git push origin v1.0.0
+  ```
+- **Frontend:** `deploy-web.yml` runs on pushes to `main` touching `apps/web/**`
+  (or via **Actions → Deploy Web → Run workflow**) and ships the SPA to Pages.
 
-Once secrets are set, push a `v*` tag to trigger a full build + deploy:
+## Step 8 — Deploy the compute (EC2 ASG)
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+cd infra/cdk
+CDK_DEFAULT_REGION=ap-southeast-1 pnpm exec cdk deploy ComputeStack
 ```
 
-Or trigger manually via **Actions → Deploy → Run workflow**.
+This creates the launch template (`t4g.small`, AL2023 ARM, 16 GB gp3, IMDSv2),
+the ASG (min 0 / max 1 / desired 1), an instance role (SSM Session Manager +
+read `/eventform/*`), and a security group with **no inbound** ports. On boot the
+userdata installs Docker, clones the repo, materializes `.env` from SSM, runs
+migrations (idempotent on Neon), and `docker compose -f docker-compose.prod.yml up -d`.
+The `connect-init` one-shot registers the Debezium connector against Neon, and
+`cloudflared` dials out to the tunnel.
+
+**Shell access** (no SSH, no inbound): `aws ssm start-session --target <instance-id>`.
 
 ---
 
-## Step 7: Smoke checklist
+## Step 9 — Smoke checklist
 
-After the first deploy, verify the following manually:
-
-- [ ] `https://eventform.murugappan.dev` loads the React SPA from Pages (green padlock)
-- [ ] `https://eventform-api.murugappan.dev/health` returns `{"status":"ok"}`
-- [ ] Clicking **Continue with Google** redirects to accounts.google.com
-- [ ] After Google sign-in, the SPA lands on `/app` (Cognito PKCE flow completes)
-- [ ] Create a form, publish it, copy the public link
+- [ ] `https://eventform.murugappan.dev` loads the SPA from Pages (green padlock)
+- [ ] `https://eventform-api.murugappan.dev/health` → `{"status":"ok"}` (give the box ~3–4 min on first boot: image pulls + Redpanda/Debezium healthy)
+- [ ] **Continue with Google** → accounts.google.com → lands on `/app` (Cognito PKCE)
+- [ ] Create a form, publish, copy the public link
 - [ ] Submit the public form anonymously
-- [ ] The delivery appears as `delivered` in the Deliveries dashboard
-- [ ] **Resilience:** stop the backend (`docker compose -f docker-compose.prod.yml stop api`),
-      reload `/login` — it shows "Waking up the backend" with the contact email; the
-      landing page (`/`) still loads. Start the API again → the page reconnects on its own.
+- [ ] Delivery shows `delivered` in the Deliveries dashboard (CDC → webhook works on Neon)
+- [ ] **Resilience:** stop the API (`aws ssm start-session` → `docker compose -f /opt/eventform/infra/compose/docker-compose.prod.yml stop api`), reload `/login` → shows "Waking up the backend"; landing page still loads. Start it again → reconnects on its own.
 
-### Recruiter demo script (5 minutes)
+### Recruiter demo (5 minutes)
 
-> "I'll show you the full event-driven pipeline live."
-
-1. Sign in with Google → land on `/app`.
-2. Create a form called **Demo**, add a Text field "Favourite language", publish.
-3. Open the public link in a new tab — show the form renders without auth.
-4. Go to **Endpoints** → New endpoint → paste `https://webhook.site/<your-id>` →
-   create → save the `whsec_` secret.
-5. Return to the public form tab, fill in `TypeScript`, submit.
-6. Switch to **Deliveries** — delivery appears in ~5 s.
-7. Open webhook.site — show the signed payload with `X-Eventform-Signature` and
-   `X-Eventform-Event-Id` headers.
-8. To demo failure + retry: update the endpoint URL to `https://httpstat.us/500`,
-   submit another response, watch the delivery fail with `500` in the attempt log,
-   then restore the URL and hit **Retry**.
+1. Sign in with Google → `/app`.
+2. Create a form **Demo**, add a Text field "Favourite language", publish.
+3. Open the public link in a new tab — renders without auth.
+4. **Endpoints** → New → `https://webhook.site/<your-id>` → save the `whsec_` secret.
+5. Submit `TypeScript` on the public form.
+6. **Deliveries** — delivery appears in a few seconds.
+7. webhook.site shows the signed payload with `X-Eventform-Signature` + `X-Eventform-Event-Id`.
+8. Failure+retry: point the endpoint at `https://httpstat.us/500`, submit again, watch it fail with `500`, then restore the URL and hit **Retry**.
 
 ---
 
-## Step 8: Teardown and ongoing costs
+## Operations
 
-| Resource | Monthly cost | Notes |
-|---|---|---|
-| VPS (Hetzner CX22) | ~€4.5 | Includes all containers |
-| AWS Cognito | $0 | 50 000 MAU free tier |
-| Secret encryption | $0 | In-process AES-256-GCM — no KMS, no extra service |
-| Domain | already owned | |
-| **Total** | **~€4–6/mo** | |
+### Scaling the box
+
+The ASG is scale-to-zero-capable (min 0 / max 1):
+
+```bash
+ASG=$(aws autoscaling describe-auto-scaling-groups --region ap-southeast-1 \
+  --query "AutoScalingGroups[?contains(AutoScalingGroupName,'ComputeStack')].AutoScalingGroupName" --output text)
+aws autoscaling set-desired-capacity --region ap-southeast-1 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
+aws autoscaling set-desired-capacity --region ap-southeast-1 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
+```
+
+A new instance is stateless: it re-pulls images, re-runs migrations (idempotent),
+and resumes. Postgres data is safe on Neon. (Automated wake-on-visit / idle-stop
+is a future add-on; today it runs always-on at desired 1.)
 
 ### Backups
 
-Postgres is hosted on **Neon**, which provides automatic continuous backups
-and point-in-time restore on its own infrastructure — there is no self-managed
-`pg_dump`/S3 backup service. Restore is done from the Neon console (PITR /
-branch-from-timestamp).
+Neon provides continuous backups + point-in-time restore — restore from the Neon
+console (PITR / branch-from-timestamp). There is no self-managed backup service.
+
+### Ongoing cost (always-on)
+
+| Resource | ~Monthly |
+|---|---|
+| EC2 `t4g.small` (ap-southeast-1) + 16 GB gp3 + IPv4 | ~$15–17 |
+| Neon (free tier) | $0 |
+| Cognito (50k MAU free) | $0 |
+| Cloudflare Pages + Tunnel | $0 |
+| **Total** | **~$15–17/mo** |
+
+(Scale-to-zero or a flat-rate VPS would be cheaper; this is the always-on EC2 number.)
 
 ### Teardown
 
 ```bash
-# Stop and remove all containers and volumes
-docker compose -f docker-compose.prod.yml down -v
-
-# Remove images
-docker image prune -a
+CDK_DEFAULT_REGION=ap-southeast-1 pnpm exec cdk destroy ComputeStack
+# Cognito (RETAIN policy protects the user pool; --force to really delete):
+CDK_DEFAULT_REGION=us-east-1 pnpm exec cdk destroy AuthStack -c googleClientId=x -c googleClientSecret=x
+# Neon: delete the project from the Neon console.
+# SSM: aws ssm delete-parameters --region ap-southeast-1 --names $(aws ssm get-parameters-by-path --region ap-southeast-1 --path /eventform --query 'Parameters[].Name' --output text)
 ```
-
-To delete the Cognito resources from AWS:
-```bash
-cd infra/cdk
-pnpm exec cdk destroy AuthStack \
-  -c googleClientId=placeholder \
-  -c googleClientSecret=placeholder
-```
-
-The UserPool has `removalPolicy: RETAIN` to protect user data. Override with
-`--force` only if you are certain you want to delete it.
