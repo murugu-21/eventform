@@ -44,42 +44,56 @@ services:
       retries: 12
       start_period: 15s
 
-  connect:
-    image: quay.io/debezium/connect:3.0
+  # Debezium Server: one process, embedded engine → Kafka. No Connect cluster,
+  # no REST registration, no connect-* topics, no init container. The connector
+  # is the env config below; the wrapper entrypoint parses the Neon DATABASE_URL
+  # into the source DB fields (sslmode=require). Offsets persist to a file on a
+  # volume — the Neon replication slot is the real durability buffer.
+  debezium:
+    image: quay.io/debezium/server:3.0
     restart: unless-stopped
     depends_on:
       kafka:
         condition: service_healthy
-    environment:
-      BOOTSTRAP_SERVERS: kafka:9092
-      GROUP_ID: eventform-connect
-      CONFIG_STORAGE_TOPIC: connect_configs
-      OFFSET_STORAGE_TOPIC: connect_offsets
-      STATUS_STORAGE_TOPIC: connect_statuses
-      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-      KAFKA_HEAP_OPTS: -Xmx384m -Xms256m
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8083/connectors > /dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-      start_period: 30s
-
-  connect-init:
-    # One-shot: registers the Debezium connector against Neon. The script parses
-    # DATABASE_URL into the connector's host/user/password/dbname fields and
-    # registers via the Connect REST API, then exits.
-    image: curlimages/curl:8.11.0
-    restart: "no"
-    depends_on:
-      connect:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
+    entrypoint: ["sh", "/debezium/entrypoint.sh"]
     volumes:
-      - ./connect:/connector:ro
-    entrypoint: ["sh", "/connector/register-prod.sh"]
+      - ./debezium/entrypoint.sh:/debezium/entrypoint.sh:ro
+      - debezium_data:/debezium/data
+    environment:
+      JAVA_OPTS: -Xmx384m -Xms256m
+      # Source DB creds are parsed from DATABASE_URL by the wrapper entrypoint.
+      DATABASE_URL: ${DATABASE_URL}
+      DEBEZIUM_SOURCE_DATABASE_SSLMODE: require
+      # Sink: Kafka (Redpanda). json format → StringSerializer writes plain JSON.
+      DEBEZIUM_SINK_TYPE: kafka
+      DEBEZIUM_SINK_KAFKA_PRODUCER_BOOTSTRAP_SERVERS: kafka:9092
+      DEBEZIUM_SINK_KAFKA_PRODUCER_KEY_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      DEBEZIUM_SINK_KAFKA_PRODUCER_VALUE_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      DEBEZIUM_SOURCE_CONNECTOR_CLASS: io.debezium.connector.postgresql.PostgresConnector
+      DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME: /debezium/data/offsets.dat
+      DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS: "0"
+      DEBEZIUM_SOURCE_TOPIC_PREFIX: eventform
+      DEBEZIUM_SOURCE_PLUGIN_NAME: pgoutput
+      DEBEZIUM_SOURCE_SLOT_NAME: eventform_outbox
+      DEBEZIUM_SOURCE_PUBLICATION_NAME: eventform_outbox_pub
+      DEBEZIUM_SOURCE_PUBLICATION_AUTOCREATE_MODE: filtered
+      DEBEZIUM_SOURCE_SNAPSHOT_MODE: no_data
+      DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST: public.outbox
+      DEBEZIUM_SOURCE_TOMBSTONES_ON_DELETE: "false"
+      # Outbox EventRouter SMT: route by aggregate_type, expand the JSON payload
+      # into the message value (schemas off → plain JSON bytes).
+      DEBEZIUM_TRANSFORMS: outbox
+      DEBEZIUM_TRANSFORMS_OUTBOX_TYPE: io.debezium.transforms.outbox.EventRouter
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_ID: id
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_KEY: aggregate_id
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_PAYLOAD: payload
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_EXPAND_JSON_PAYLOAD: "true"
+      DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_BY_FIELD: aggregate_type
+      DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_TOPIC_REPLACEMENT: eventform.events
+      DEBEZIUM_FORMAT_KEY: json
+      DEBEZIUM_FORMAT_KEY_SCHEMAS_ENABLE: "false"
+      DEBEZIUM_FORMAT_VALUE: json
+      DEBEZIUM_FORMAT_VALUE_SCHEMAS_ENABLE: "false"
 
   api:
     image: ghcr.io/murugu-21/eventform-api:latest
@@ -147,3 +161,4 @@ services:
 
 volumes:
   redpanda_data:
+  debezium_data:

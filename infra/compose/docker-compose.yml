@@ -50,8 +50,14 @@ services:
       retries: 12
       start_period: 10s
 
-  connect:
-    image: quay.io/debezium/connect:3.0
+  # Debezium Server: a single self-contained process that streams the outbox via
+  # the embedded engine straight to Kafka — no Connect cluster, no REST API, no
+  # connect-* internal topics, no registration step. The whole connector is the
+  # env config below (the EventRouter SMT routes outbox rows → eventform.events).
+  # Offsets live in a file on a volume (the replication slot is the real durability
+  # buffer; the offset file just records how far the engine has read).
+  debezium:
+    image: quay.io/debezium/server:3.0
     restart: unless-stopped
     depends_on:
       kafka:
@@ -59,22 +65,48 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      BOOTSTRAP_SERVERS: kafka:9092
-      GROUP_ID: eventform-connect
-      CONFIG_STORAGE_TOPIC: connect_configs
-      OFFSET_STORAGE_TOPIC: connect_offsets
-      STATUS_STORAGE_TOPIC: connect_statuses
-      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-      KAFKA_HEAP_OPTS: -Xmx384m -Xms256m
-    ports:
-      - "127.0.0.1:8083:8083"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8083/connectors > /dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-      start_period: 30s
+      JAVA_OPTS: -Xmx384m -Xms256m
+      # Sink: Kafka (Redpanda). Producer talks the in-network listener. The
+      # serializers must be set explicitly — the json format emits strings, so
+      # StringSerializer writes the same UTF-8 JSON bytes Connect's converters did.
+      DEBEZIUM_SINK_TYPE: kafka
+      DEBEZIUM_SINK_KAFKA_PRODUCER_BOOTSTRAP_SERVERS: kafka:9092
+      DEBEZIUM_SINK_KAFKA_PRODUCER_KEY_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      DEBEZIUM_SINK_KAFKA_PRODUCER_VALUE_SERIALIZER: org.apache.kafka.common.serialization.StringSerializer
+      # Source: Postgres outbox via pgoutput logical replication.
+      DEBEZIUM_SOURCE_CONNECTOR_CLASS: io.debezium.connector.postgresql.PostgresConnector
+      DEBEZIUM_SOURCE_OFFSET_STORAGE_FILE_FILENAME: /debezium/data/offsets.dat
+      DEBEZIUM_SOURCE_OFFSET_FLUSH_INTERVAL_MS: "0"
+      DEBEZIUM_SOURCE_TOPIC_PREFIX: eventform
+      DEBEZIUM_SOURCE_DATABASE_HOSTNAME: postgres
+      DEBEZIUM_SOURCE_DATABASE_PORT: "5432"
+      DEBEZIUM_SOURCE_DATABASE_USER: eventform
+      DEBEZIUM_SOURCE_DATABASE_PASSWORD: eventform
+      DEBEZIUM_SOURCE_DATABASE_DBNAME: eventform
+      DEBEZIUM_SOURCE_PLUGIN_NAME: pgoutput
+      DEBEZIUM_SOURCE_SLOT_NAME: eventform_outbox
+      DEBEZIUM_SOURCE_PUBLICATION_NAME: eventform_outbox_pub
+      DEBEZIUM_SOURCE_PUBLICATION_AUTOCREATE_MODE: filtered
+      DEBEZIUM_SOURCE_SNAPSHOT_MODE: no_data
+      DEBEZIUM_SOURCE_TABLE_INCLUDE_LIST: public.outbox
+      DEBEZIUM_SOURCE_TOMBSTONES_ON_DELETE: "false"
+      # Outbox EventRouter SMT: unwrap the row, route by aggregate_type, expand
+      # the JSON payload into the message value (schemas off → plain JSON bytes).
+      DEBEZIUM_TRANSFORMS: outbox
+      DEBEZIUM_TRANSFORMS_OUTBOX_TYPE: io.debezium.transforms.outbox.EventRouter
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_ID: id
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_KEY: aggregate_id
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_FIELD_EVENT_PAYLOAD: payload
+      DEBEZIUM_TRANSFORMS_OUTBOX_TABLE_EXPAND_JSON_PAYLOAD: "true"
+      DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_BY_FIELD: aggregate_type
+      DEBEZIUM_TRANSFORMS_OUTBOX_ROUTE_TOPIC_REPLACEMENT: eventform.events
+      DEBEZIUM_FORMAT_KEY: json
+      DEBEZIUM_FORMAT_KEY_SCHEMAS_ENABLE: "false"
+      DEBEZIUM_FORMAT_VALUE: json
+      DEBEZIUM_FORMAT_VALUE_SCHEMAS_ENABLE: "false"
+    volumes:
+      - debezium_data:/debezium/data
 
 volumes:
   pgdata:
+  debezium_data:

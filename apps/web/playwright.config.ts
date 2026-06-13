@@ -4,11 +4,10 @@ import { defineConfig, devices } from "@playwright/test";
  * Playwright config for eventform web smoke tests.
  *
  * Prerequisites before running:
- *   1. docker compose up -d --wait  (postgres, kafka, connect)
- *   2. pnpm connect:register        (Debezium outbox connector RUNNING)
- *   3. PORT=3001 node apps/api/dist/main.js  (API)
- *   4. node apps/worker/dist/main.js         (worker)
- *   5. The web dev server is started automatically by webServer below.
+ *   1. docker compose up -d --wait  (postgres, kafka, debezium server; auto-streams)
+ *   2. PORT=3001 node apps/api/dist/main.js  (API)
+ *   3. node apps/worker/dist/main.js         (worker)
+ *   4. The web dev server is started automatically by webServer below.
  */
 export default defineConfig({
   testDir: "./e2e",

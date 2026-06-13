@@ -1,31 +1,43 @@
-# Local prod smoke-test override. Runs the prod stack locally in dev-auth mode,
-# exposing:
-#   :8081  → API directly (dev auth mode; no Caddy, no tunnel locally)
-#   :15432 → postgres (for running migrations + bootstrap)
+# Local prod smoke-test override. Runs the prod stack locally in dev-auth mode
+# against a throwaway local Postgres (real prod uses Neon, which has no service
+# here). Exposes:
+#   :8081  → API directly (dev auth mode; no tunnel locally)
+#   :15432 → postgres (for running migrations from the host)
 # The SPA is served by Cloudflare Pages in real prod; for a local smoke test
 # point a Vite dev server (VITE_API_URL=http://localhost:8081) at the API.
 #
 # Usage:
-#   export DB_ADMIN_PASSWORD=localdev APP_API_PASSWORD=localdev APP_WORKER_PASSWORD=localdev
 #   export SECRET_ENC_KEY=$(head -c 32 /dev/urandom | base64)
 #   docker compose -p eventform-prod \
 #     -f infra/compose/docker-compose.prod.yml \
 #     -f infra/compose/docker-compose.prod-local.override.yml \
 #     up -d --build
+#   # then migrate from the host against the published port:
+#   DATABASE_URL=postgres://eventform@localhost:15432/eventform pnpm db:migrate
 #
 # Tear down: docker compose -p eventform-prod down -v
 
 name: eventform-prod
 
 services:
+  # Real prod has no Postgres (it's on Neon); add a throwaway one for the smoke
+  # test. Trust auth (127.0.0.1-published) lets the password-less app_api/app_worker
+  # roles the migration creates connect with no credentials — same as dev.
   postgres:
-    # Publish postgres locally so migrations can run from the host
-    ports:
-      - "127.0.0.1:15432:5432"
+    image: postgres:16-alpine
+    command: postgres -c wal_level=logical
     environment:
       POSTGRES_USER: eventform
-      POSTGRES_PASSWORD: localdev
       POSTGRES_DB: eventform
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U eventform -d eventform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   api:
     build:
@@ -36,7 +48,7 @@ services:
       CORS_ORIGINS: "http://localhost:5173,http://localhost:8081"
       # app_api is created password-less by migration 0001_rls.sql (trust auth locally)
       DATABASE_URL_API: postgres://app_api@postgres:5432/eventform
-      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform@postgres:5432/eventform
       COGNITO_ISSUER: ""
       COGNITO_CLIENT_ID: ""
     # Expose API directly so a local SPA / curl can reach http://localhost:8081
@@ -47,26 +59,20 @@ services:
     environment:
       # app_worker is created password-less by migration 0001_rls.sql (trust auth locally)
       DATABASE_URL_WORKER: postgres://app_worker@postgres:5432/eventform
-      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform@postgres:5432/eventform
 
   migrate:
     environment:
-      DATABASE_URL: postgres://eventform:localdev@postgres:5432/eventform
+      DATABASE_URL: postgres://eventform@postgres:5432/eventform
 
-  connect-init:
+  # Point Debezium at the local Postgres (no SSL) instead of Neon, and wait for
+  # it to be healthy. The wrapper entrypoint parses this DATABASE_URL the same way.
+  debezium:
     environment:
-      DB_ADMIN_PASSWORD: localdev
-    # Override entrypoint: substitute the DB password at runtime.
-    # The dev connector JSON hardcodes 'eventform' for database.password but the local
-    # prod stack uses DB_ADMIN_PASSWORD (localdev). We replace the specific field.
-    entrypoint: >
-      sh -c '
-        set -e
-        echo "registering connector (db password substituted)..."
-        CONFIG=$$(sed "s/\"database.password\": \"eventform\"/\"database.password\": \"$$DB_ADMIN_PASSWORD\"/" /connector/eventform-outbox.json)
-        curl -fsS -X PUT \
-          -H "Content-Type: application/json" \
-          --data "$$CONFIG" \
-          http://connect:8083/connectors/eventform-outbox/config
-        echo "connector registered"
-      '
+      DATABASE_URL: postgres://eventform@postgres:5432/eventform
+      DEBEZIUM_SOURCE_DATABASE_SSLMODE: disable
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy

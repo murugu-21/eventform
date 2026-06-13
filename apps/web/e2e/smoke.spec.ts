@@ -2,8 +2,7 @@
  * Full-stack smoke test.
  *
  * Prerequisites (must be running before executing this test):
- *   - docker compose up -d --wait  (postgres + kafka + connect)
- *   - pnpm connect:register        (Debezium outbox connector RUNNING)
+ *   - docker compose up -d --wait  (postgres + kafka + debezium server; auto-streams)
  *   - PORT=3001 node apps/api/dist/main.js
  *   - node apps/worker/dist/main.js
  *   - The Vite dev server is started automatically by playwright.config.ts webServer.

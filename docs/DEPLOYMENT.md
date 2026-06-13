@@ -182,10 +182,11 @@ CDK_DEFAULT_REGION=ap-southeast-1 pnpm exec cdk deploy ComputeStack
 This creates the launch template (`t4g.small`, AL2023 ARM, 16 GB gp3, IMDSv2),
 the ASG (min 0 / max 1 / desired 1), an instance role (SSM Session Manager +
 read `/eventform/*`), and a security group with **no inbound** ports. On boot the
-userdata installs Docker, clones the repo, materializes `.env` from SSM, runs
-migrations (idempotent on Neon), and `docker compose -f docker-compose.prod.yml up -d`.
-The `connect-init` one-shot registers the Debezium connector against Neon, and
-`cloudflared` dials out to the tunnel.
+userdata installs Docker, clones the repo, materializes `.env` from SSM, and runs
+`docker compose -f docker-compose.prod.yml up -d`. Migrations run in CI against
+Neon (the deploy workflow's `migrate` job), not on the box. Debezium Server starts
+streaming from Neon on its own — it parses the connector config from env and needs
+no registration step — and `cloudflared` dials out to the tunnel.
 
 **Shell access** (no SSH, no inbound): `aws ssm start-session --target <instance-id>`.
 

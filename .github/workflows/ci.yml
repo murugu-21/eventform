@@ -36,7 +36,7 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      - name: Boot dev services (postgres, kafka, connect)
+      - name: Boot dev services (postgres, kafka, debezium server)
         run: pnpm db:up
         timeout-minutes: 5
 
@@ -100,8 +100,8 @@ jobs:
         env:
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
 
-      - name: Register Debezium connector
-        run: pnpm connect:register
+      # Debezium Server starts streaming automatically when `db:up` brings it up
+      # healthy — there is no connector to register.
 
       - name: Start webhook sink (smoke test delivery target)
         run: |

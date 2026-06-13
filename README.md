@@ -33,8 +33,8 @@ graph LR
         RLS["RLS policies\n(tenant isolation)"]
     end
 
-    subgraph Debezium["Debezium Connect (CDC)"]
-        Connector["eventform-outbox\nconnector"]
+    subgraph Debezium["Debezium Server (CDC)"]
+        Connector["embedded engine\n+ EventRouter SMT"]
     end
 
     subgraph Kafka["Redpanda (Kafka API)"]
@@ -82,7 +82,7 @@ so multiple worker replicas never race on the same row.
 | Pattern | Why it matters | Implementing file |
 |---|---|---|
 | **Transactional outbox** | Submission write and event emit are atomic — no dual-write, no missed events | [`apps/api/src/public/public.service.ts`](apps/api/src/public/public.service.ts) |
-| **CDC (Debezium)** | Outbox rows flow to Kafka via the Postgres WAL — zero polling, no extra DB load | [`infra/compose/connect/eventform-outbox.json`](infra/compose/connect/eventform-outbox.json) |
+| **CDC (Debezium Server)** | Outbox rows flow to Kafka via the Postgres WAL — zero polling, no extra DB load. A single Debezium Server process (no Connect cluster), configured entirely by env | [`infra/compose/docker-compose.yml`](infra/compose/docker-compose.yml) |
 | **Idempotent consumer** | Each event id is claimed in a `processed_events` ledger inside the work transaction; re-delivered messages hit the conflict and are skipped | [`apps/worker/src/processor/delivery-processor.service.ts`](apps/worker/src/processor/delivery-processor.service.ts) |
 | **Row-level security** | Every query runs under a tenant-scoped transaction; no cross-tenant data leaks at the SQL layer | [`packages/db/migrations/0001_rls.sql`](packages/db/migrations/0001_rls.sql) |
 | **SKIP LOCKED scheduler** | Retry rows are claimed with `SELECT ... FOR UPDATE SKIP LOCKED` — safe to run N replicas | [`apps/worker/src/scheduler/retry-scheduler.service.ts`](apps/worker/src/scheduler/retry-scheduler.service.ts) |
@@ -95,7 +95,7 @@ so multiple worker replicas never race on the same row.
 **Honest notes:**
 - Delivery is **at-least-once, not exactly-once.** Webhook receivers should deduplicate
   on `X-Eventform-Event-Id` if they require idempotency.
-- The Debezium connector uses the admin DB user in this demo (no dedicated replication
+- Debezium Server reads the WAL as the admin DB user in this demo (no dedicated replication
   role). A production hardening step would create a minimal-privilege replication role.
 - **Secret-encryption threat model:** root of trust is `SECRET_ENC_KEY` (a 32-byte AES-256
   key) held in the environment and backed up out-of-band. A DB dump without the key is
@@ -117,9 +117,9 @@ pnpm install
 pnpm build
 cp .env.example .env
 
-pnpm db:up            # postgres + redpanda (kafka api) + kafka-connect
+pnpm db:up            # postgres + redpanda (kafka api) + debezium server
 pnpm db:migrate       # apply all Drizzle migrations (tables, roles, RLS)
-pnpm connect:register # register the Debezium outbox connector
+                      # (Debezium Server auto-streams once it's up — nothing to register)
 
 # Terminal 1 — API
 PORT=3001 node apps/api/dist/main.js
