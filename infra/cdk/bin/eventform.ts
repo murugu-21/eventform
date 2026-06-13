@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 import { AuthStack } from "../lib/auth-stack";
 import { CertStack } from "../lib/cert-stack";
+import { ComputeStack } from "../lib/compute-stack";
 
 const app = new cdk.App();
 
@@ -30,4 +31,14 @@ new AuthStack(app, "AuthStack", {
   description: "Eventform Cognito User Pool with Google federation",
   customAuthDomain,
   authCertificate: certStack?.certificate,
+});
+
+// ComputeStack — EC2 ASG (scale-to-zero capable) running the container stack.
+// Requires a default VPC + concrete account/region (CDK_DEFAULT_ACCOUNT/REGION)
+// for the VPC lookup. Deploy with: cdk deploy ComputeStack
+// Region: set CDK_DEFAULT_REGION (ap-southeast-1 to co-locate with Neon, or
+// ap-south-1 for cheaper t4g, accepting cross-region DB latency).
+new ComputeStack(app, "ComputeStack", {
+  env,
+  description: "EventForm EC2 ASG running the Docker Compose app stack",
 });
