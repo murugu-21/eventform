@@ -3,7 +3,7 @@
 #   DB_ADMIN_PASSWORD        postgres superuser password (POSTGRES_PASSWORD)
 #   APP_API_PASSWORD         password for the app_api role
 #   APP_WORKER_PASSWORD      password for the app_worker role
-#   KMS_KEY_MATERIAL_FILE    host path to the base64-encoded AES-256 key material (mode 600)
+#   SECRET_ENC_KEY           base64-encoded 32-byte AES-256 key for endpoint-secret encryption
 #   COGNITO_ISSUER           https://cognito-idp.<region>.amazonaws.com/<poolId>
 #   COGNITO_CLIENT_ID        Cognito app client id
 #   TUNNEL_TOKEN             Cloudflare Tunnel token (Zero Trust -> Networks -> Tunnels)
@@ -13,7 +13,7 @@
 #
 # Optional overrides (have defaults):
 #   API_HOST                 default: eventform-api.murugappan.dev
-#   AWS_REGION               default: us-east-1
+#   AWS_REGION               default: us-east-1 (backup service only)
 
 name: eventform-prod
 
@@ -35,24 +35,6 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-
-  localstack:
-    image: localstack/localstack:3
-    environment:
-      SERVICES: kms
-    # No published port in prod
-    volumes:
-      - ./localstack/ready.d:/etc/localstack/init/ready.d:ro
-      # KMS_KEY_MATERIAL_FILE must be an absolute path on the host (or relative to the compose file dir).
-      # Deliberately REQUIRED (no fallback): the committed dev-key-material.b64 is public on GitHub —
-      # silently defaulting to it in prod would encrypt real secrets under publicly known key material.
-      - ${KMS_KEY_MATERIAL_FILE:?run infra/prod/gen-kms-material.sh first — never the committed dev material}:/etc/eventform/kms-key-material.b64:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "awslocal kms describe-key --key-id alias/eventform-endpoint-secrets --query KeyMetadata.KeyState --output text | grep -q Enabled"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   # Kafka-API broker. Redpanda (C++, single process, no JVM) in place of
   # Apache Kafka for resource footprint — kafkajs and Debezium speak the same
@@ -140,8 +122,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      localstack:
-        condition: service_healthy
     environment:
       PORT: "3001"
       DATABASE_URL_API: postgres://app_api:${APP_API_PASSWORD}@postgres:5432/eventform
@@ -151,11 +131,7 @@ services:
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
       CORS_ORIGINS: https://eventform.murugappan.dev
       TRUST_PROXY: "2"
-      AWS_ENDPOINT_URL: http://localstack:4566
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
-      KMS_KEY_ID: alias/eventform-endpoint-secrets
+      SECRET_ENC_KEY: ${SECRET_ENC_KEY}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 10s
@@ -172,8 +148,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      localstack:
-        condition: service_healthy
       kafka:
         condition: service_healthy
     environment:
@@ -182,11 +156,7 @@ services:
       DATABASE_URL: postgres://eventform:${DB_ADMIN_PASSWORD}@postgres:5432/eventform
       # NOTE: Use the in-network PLAINTEXT listener (kafka:9092), not the external one (29092)
       KAFKA_BROKERS: kafka:9092
-      AWS_ENDPOINT_URL: http://localstack:4566
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
-      KMS_KEY_ID: alias/eventform-endpoint-secrets
+      SECRET_ENC_KEY: ${SECRET_ENC_KEY}
 
   migrate:
     # One-shot migration runner. Run with: docker compose -f docker-compose.prod.yml run --rm migrate

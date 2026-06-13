@@ -36,7 +36,7 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      - name: Boot dev services (postgres, localstack, kafka, connect)
+      - name: Boot dev services (postgres, kafka, connect)
         run: pnpm db:up
         timeout-minutes: 5
 
@@ -118,11 +118,6 @@ jobs:
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
           AUTH_MODE: dev
           CORS_ORIGINS: "http://localhost:5173"
-          AWS_ENDPOINT_URL: http://localhost:4566
-          AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          KMS_KEY_ID: alias/eventform-endpoint-secrets
           TRUST_PROXY: "0"
 
       - name: Start Worker in background
@@ -134,11 +129,6 @@ jobs:
           DATABASE_URL_WORKER: postgres://app_worker:app_worker_dev@localhost:5432/eventform
           DATABASE_URL: postgres://eventform:eventform@localhost:5432/eventform
           KAFKA_BROKERS: localhost:29092
-          AWS_ENDPOINT_URL: http://localhost:4566
-          AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          KMS_KEY_ID: alias/eventform-endpoint-secrets
 
       - name: Wait for API + Worker to be ready
         run: |

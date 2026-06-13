@@ -3,7 +3,6 @@ import * as cdk from "aws-cdk-lib";
 import { AuthStack } from "../lib/auth-stack";
 import { BackupStack } from "../lib/backup-stack";
 import { CertStack } from "../lib/cert-stack";
-import { KmsStack } from "../lib/kms-stack";
 
 const app = new cdk.App();
 
@@ -32,16 +31,6 @@ new AuthStack(app, "AuthStack", {
   description: "Eventform Cognito User Pool with Google federation",
   customAuthDomain,
   authCertificate: certStack?.certificate,
-});
-
-// KmsStack — deployed to LocalStack via: cdklocal deploy KmsStack
-// See infra/cdk/lib/kms-stack.ts for the interplay with the compose boot hook.
-new KmsStack(app, "KmsStack", {
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT ?? "000000000000",
-    region: process.env.CDK_DEFAULT_REGION ?? "us-east-1",
-  },
-  description: "Eventform KMS key (EXTERNAL origin) for LocalStack",
 });
 
 // BackupStack — append-only S3 target for nightly pg_dump uploads from the VPS.

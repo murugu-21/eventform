@@ -6,7 +6,7 @@
 #
 # Usage:
 #   export DB_ADMIN_PASSWORD=localdev APP_API_PASSWORD=localdev APP_WORKER_PASSWORD=localdev
-#   export KMS_KEY_MATERIAL_FILE=./localstack/dev-key-material.b64
+#   export SECRET_ENC_KEY=$(head -c 32 /dev/urandom | base64)
 #   docker compose -p eventform-prod \
 #     -f infra/compose/docker-compose.prod.yml \
 #     -f infra/compose/docker-compose.prod-local.override.yml \
@@ -25,10 +25,6 @@ services:
       POSTGRES_USER: eventform
       POSTGRES_PASSWORD: localdev
       POSTGRES_DB: eventform
-
-  localstack:
-    ports:
-      - "127.0.0.1:14566:4566"
 
   api:
     build:

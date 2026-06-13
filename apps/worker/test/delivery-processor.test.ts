@@ -11,10 +11,9 @@ const ADMIN_URL = process.env.DATABASE_URL ?? "postgres://eventform:eventform@lo
 const WORKER_URL =
   process.env.DATABASE_URL_WORKER ?? "postgres://app_worker:app_worker_dev@localhost:5432/eventform";
 
+// Matches the worker's DEV_SECRET_ENC_KEY so the worker can decrypt what we encrypt.
 const cipher = new SecretCipher({
-  keyId: "alias/eventform-endpoint-secrets",
-  endpoint: "http://localhost:4566",
-  region: "us-east-1",
+  key: Buffer.from("eventform_dev_only_secret_key_32", "utf8").toString("base64"),
 });
 
 describe("DeliveryProcessor", () => {

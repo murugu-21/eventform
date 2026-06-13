@@ -2,8 +2,8 @@
 
 Multi-tenant form builder with end-to-end webhook delivery, built to demonstrate
 production-grade distributed-systems patterns: transactional outbox, CDC via
-Debezium, idempotent Kafka consumer, row-level security, KMS-encrypted secrets,
-and Cognito PKCE auth — all runnable locally with a single `docker compose up`.
+Debezium, idempotent Kafka consumer, row-level security, AES-256-GCM-encrypted
+secrets, and Cognito PKCE auth — all runnable locally with a single `docker compose up`.
 
 ---
 
@@ -54,16 +54,13 @@ graph LR
         Cognito["Cognito UserPool\n(Google IdP)"]
     end
 
-    subgraph LocalStack["LocalStack (KMS — host-pinned material)"]
-        KMS["KMS key\nalias/eventform-endpoint-secrets"]
-    end
-
     Pages -->|"serves SPA bundle"| SPA
     SPA -->|"PKCE code flow"| Cognito
     SPA -->|"Bearer access token"| Caddy
     Caddy --> API
     API --> Auth
     Auth -->|"JWKS verify"| Cognito
+    API -->|"AES-256-GCM encrypt\nendpoint secrets (in-process)"| OutboxInsert
     API --> OutboxInsert
     OutboxInsert --> OutboxTable
     OutboxTable --> Connector
@@ -71,7 +68,6 @@ graph LR
     Topic --> Consumer
     Consumer -->|"HMAC-signed POST"| HTTP
     Consumer --> Retry
-    API -->|"KMS encrypt/decrypt\nendpoint secrets"| KMS
     RLS -.->|"tenant isolation"| OutboxTable
 ```
 
@@ -92,7 +88,7 @@ so multiple worker replicas never race on the same row.
 | **SKIP LOCKED scheduler** | Retry rows are claimed with `SELECT ... FOR UPDATE SKIP LOCKED` — safe to run N replicas | [`apps/worker/src/scheduler/retry-scheduler.service.ts`](apps/worker/src/scheduler/retry-scheduler.service.ts) |
 | **Manual retry (API)** | Operators can re-queue failed deliveries from the dashboard | [`apps/api/src/deliveries/deliveries.service.ts`](apps/api/src/deliveries/deliveries.service.ts) |
 | **HMAC webhook signing** | Every delivery carries `X-Eventform-Signature`; receivers verify authenticity | [`packages/shared/src/hmac.ts`](packages/shared/src/hmac.ts) |
-| **KMS-encrypted secrets** | Endpoint HMAC secrets are AES-GCM encrypted at rest; LocalStack provides the key locally | [`packages/shared/src/kms.ts`](packages/shared/src/kms.ts) |
+| **Encrypted secrets** | Endpoint HMAC secrets are AES-256-GCM encrypted at rest, in-process; the tenant id is bound in as AAD so a ciphertext can't be reused across tenants | [`packages/shared/src/cipher.ts`](packages/shared/src/cipher.ts) |
 | **PKCE auth** | SPA uses authorization-code + PKCE flow against Cognito hosted UI — no client secret in the browser | [`apps/web/src/lib/pkce.ts`](apps/web/src/lib/pkce.ts) |
 | **Cognito token verifier** | API verifies RS256 access tokens via remote JWKS; test seam accepts a local keypair (no AWS needed in CI) | [`apps/api/src/auth/cognito-token-verifier.ts`](apps/api/src/auth/cognito-token-verifier.ts) |
 
@@ -101,10 +97,12 @@ so multiple worker replicas never race on the same row.
   on `X-Eventform-Event-Id` if they require idempotency.
 - The Debezium connector uses the admin DB user in this demo (no dedicated replication
   role). A production hardening step would create a minimal-privilege replication role.
-- **KMS threat model:** root of trust is `KMS_KEY_MATERIAL_FILE` on the host (mode 600,
-  backed up out-of-band). A DB dump without the key material file is ciphertext-only.
-  LocalStack Community reports `Origin=AWS_KMS` — the `EXTERNAL` origin CDK declaration
-  is honoured at the CloudFormation level; material is always imported by the boot hook.
+- **Secret-encryption threat model:** root of trust is `SECRET_ENC_KEY` (a 32-byte AES-256
+  key) held in the environment and backed up out-of-band. A DB dump without the key is
+  ciphertext-only, and the tenant id is bound in as GCM additional authenticated data, so a
+  ciphertext lifted onto another tenant's row fails to decrypt. Losing the key orphans every
+  stored endpoint secret — so back it up. (For an audited, rot-managed, HSM-backed key you'd
+  swap the cipher's implementation for real AWS KMS behind the same `SecretCipher` seam.)
 
 ---
 
@@ -119,7 +117,7 @@ pnpm install
 pnpm build
 cp .env.example .env
 
-pnpm db:up            # postgres + localstack (KMS) + redpanda (kafka api) + kafka-connect
+pnpm db:up            # postgres + redpanda (kafka api) + kafka-connect
 pnpm db:migrate       # apply all Drizzle migrations (tables, roles, RLS)
 pnpm connect:register # register the Debezium outbox connector
 
@@ -163,13 +161,13 @@ pnpm --filter @eventform/web dev
 
 | Suite | Tests | What it covers |
 |---|---|---|
-| `packages/shared` | 28 | HMAC signing/verification, event schemas (Zod), KMS encrypt/decrypt (integration, LocalStack) |
+| `packages/shared` | 30 | HMAC signing/verification, event schemas (Zod), AES-256-GCM cipher (in-process, no external deps) |
 | `packages/db` | 12 | RLS policies (integration, real Postgres) |
-| `apps/api` | 60 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
+| `apps/api` | 62 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
 | `apps/worker` | 22 | delivery processor, retry scheduler (SKIP LOCKED), backoff, pipeline e2e (real Kafka) |
-| `apps/web` | 17 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
-| `infra/cdk` | 14 | AuthStack + KmsStack CloudFormation template assertions (no AWS) |
-| **Total** | **153** | unit + integration |
+| `apps/web` | 22 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
+| `infra/cdk` | 11 | AuthStack + CertStack + BackupStack CloudFormation template assertions (no AWS) |
+| **Total** | **159** | unit + integration |
 | **Playwright smoke** | 2 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
 
 Run all unit/integration suites:
@@ -192,7 +190,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 **Cost summary (running in production):**
 - VPS (Hetzner CX22 or equivalent): ~€4–6/month
 - AWS Cognito: $0 (50 000 MAU free tier)
-- AWS KMS: $0 (LocalStack runs on the VPS — no AWS KMS calls in prod)
+- Secret encryption: $0 (in-process AES-256-GCM — no KMS, no extra service)
 - Domain: already owned
 
 ---
@@ -200,14 +198,14 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 ## Repo layout
 
 ```
-packages/shared   HMAC utils, Zod event schemas, KMS cipher
+packages/shared   HMAC utils, Zod event schemas, AES-256-GCM secret cipher
 packages/db       Drizzle schema, migrations, tenant-scoped tx helper
 apps/api          NestJS REST API — auth, forms, endpoints, public submission, deliveries
 apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
 infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod)
 infra/caddy       Dockerfile + Caddyfile — API reverse proxy (SPA is on Cloudflare Pages)
-infra/cdk         AWS CDK: AuthStack (Cognito) + KmsStack (LocalStack KMS)
+infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack + BackupStack
 infra/prod        bootstrap.sh — first-boot hardening
 .github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)
 docs/DEPLOYMENT.md  Human handoff checklist

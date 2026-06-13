@@ -2,8 +2,8 @@
 # infra/prod/bootstrap.sh — idempotent DB hardening, run ONCE after migrations.
 #
 # Correct order on a fresh VPS:
-#   1. gen-kms-material.sh         (generate key material — BEFORE compose up)
-#   2. docker compose ... up -d postgres localstack kafka connect
+#   1. set SECRET_ENC_KEY in .env  (base64 32-byte AES key — endpoint-secret encryption)
+#   2. docker compose ... up -d postgres kafka connect
 #   3. docker compose ... run --rm migrate   (creates roles + tables + RLS)
 #   4. bootstrap.sh                (THIS script — rotate passwords + harden)
 #   5. docker compose ... up -d    (start the full app stack)

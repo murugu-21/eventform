@@ -59,7 +59,7 @@ const TECH = [
   "Drizzle ORM",
   "Debezium CDC",
   "Redpanda (Kafka API)",
-  "LocalStack KMS",
+  "AES-256-GCM",
   "AWS CDK",
   "TypeScript",
   "Tailwind v4",

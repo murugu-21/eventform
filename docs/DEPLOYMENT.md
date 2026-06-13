@@ -4,8 +4,9 @@ This is the step-by-step handoff checklist to get eventform running at
 `eventform.murugappan.dev` / `eventform-api.murugappan.dev` on a generic VPS.
 
 **AWS is used only for Cognito (free tier).** The backend — Kafka API
-(Redpanda), Debezium, KMS, Postgres, the API/worker, and a Caddy API proxy —
-runs inside Docker on the VPS. There is no EC2, no ECS, no RDS. The **frontend
+(Redpanda), Debezium, Postgres, the API/worker, and a Caddy API proxy — runs
+inside Docker on the VPS. Endpoint secrets are encrypted with in-process
+AES-256-GCM (no KMS, no LocalStack). There is no EC2, no ECS, no RDS. The **frontend
 (SPA) is hosted on Cloudflare Pages**, a global CDN that stays up independently
 of the VPS, so the site shell loads even when the backend is down or restarting
 (API-dependent pages show a "waking up the backend" reconnecting screen via the
@@ -174,47 +175,36 @@ Edit `.env` with the following variables. All are required unless marked optiona
 | `DB_ADMIN_PASSWORD` | Postgres superuser password | `$(openssl rand -hex 20)` |
 | `APP_API_PASSWORD` | Password for the `app_api` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
 | `APP_WORKER_PASSWORD` | Password for the `app_worker` DB role (rotated by bootstrap.sh in step 5e) | `$(openssl rand -hex 20)` |
-| `KMS_KEY_MATERIAL_FILE` | Absolute host path for the AES-256 key material file (created by gen-kms-material.sh in step 5b) | `/etc/eventform/kms-material.b64` |
+| `SECRET_ENC_KEY` | Base64 32-byte AES-256 key for endpoint-secret encryption (AES-256-GCM, in-process) | `$(head -c 32 /dev/urandom \| base64)` |
 | `COGNITO_ISSUER` | From CDK AuthStack output `IssuerUrl` | `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_el6h3ZKKw` (deployed value) |
 | `COGNITO_CLIENT_ID` | From CDK AuthStack output `ClientId` | `2lg7gav69pb2k0qnkt2md4kaio` (deployed value) |
 | `TUNNEL_TOKEN` | Cloudflare Tunnel token (Networks → Tunnels) | `eyJ...` |
 | `BACKUP_S3_BUCKET` | From BackupStack output | `eventform-backups-536972289919-us-east-1` (deployed value) |
 | `BACKUP_AWS_ACCESS_KEY_ID` / `BACKUP_AWS_SECRET_ACCESS_KEY` | Access key for the `eventform-backup` IAM user (PutObject-only — see Backups section) | |
 | `API_HOST` | *(optional)* API hostname for the Caddy proxy; default `eventform-api.murugappan.dev` | |
-| `AWS_REGION` | *(optional)* AWS region; default `us-east-1` | |
+| `AWS_REGION` | *(optional)* AWS region for the backup service; default `us-east-1` | |
 
-> **First-boot order matters.** KMS key material must exist *before* compose
-> starts (localstack mounts it), and the `app_api`/`app_worker` roles must exist
+> **First-boot order matters.** The `app_api`/`app_worker` roles must exist
 > *before* their passwords can be rotated (the migration creates them). Run
 > 5b → 5h in order; each step is idempotent and safe to re-run.
 
-### 5b. Restore KMS key material from SSM (before anything starts)
+### 5b. Generate the secret-encryption key (once)
 
-The key material's durable source of truth is **AWS SSM Parameter Store**
-(`/eventform/kms-key-material`, SecureString — standard tier, free). The VPS
-needs only the file; no AWS credentials live on the box.
-
-On your **laptop** (with the AWS profile), then copy to the VPS:
+Endpoint HMAC secrets are encrypted at rest with AES-256-GCM, in-process (no
+KMS, no LocalStack). Generate a 32-byte key once and keep it in `.env` as
+`SECRET_ENC_KEY` — **back it up out of band** (a DB dump without this key is
+ciphertext-only, and losing it orphans every stored endpoint secret):
 
 ```bash
-export AWS_PROFILE=eventform
-KMS_KEY_MATERIAL_FILE=/tmp/kms-material.b64 bash infra/prod/gen-kms-material.sh
-scp /tmp/kms-material.b64 ubuntu@<VPS_IP>:/tmp/
-ssh ubuntu@<VPS_IP> 'sudo mkdir -p /etc/eventform && sudo mv /tmp/kms-material.b64 /etc/eventform/ && sudo chmod 600 /etc/eventform/kms-material.b64'
-rm /tmp/kms-material.b64
+echo "SECRET_ENC_KEY=$(head -c 32 /dev/urandom | base64)" >> .env
 ```
-
-The script is idempotent and self-healing: it restores from SSM when the
-parameter exists, backs a local file up into SSM when it doesn't, generates
-fresh material only when neither exists, and refuses to proceed if the local
-file and SSM ever diverge (overwriting either side could orphan ciphertexts).
 
 ### 5c. Start the infra tier
 
 ```bash
 cd /opt/eventform/infra/compose
-docker compose -f docker-compose.prod.yml up -d postgres localstack kafka connect
-docker compose -f docker-compose.prod.yml wait postgres localstack kafka connect
+docker compose -f docker-compose.prod.yml up -d postgres kafka connect
+docker compose -f docker-compose.prod.yml wait postgres kafka connect
 ```
 
 ### 5d. Run migrations (creates tables, roles, RLS policies)
@@ -246,23 +236,6 @@ connector on every `compose up`. It starts automatically with the full stack (st
 
 In prod the connector config is `infra/compose/connect/eventform-outbox-prod.json`,
 which substitutes `${DB_ADMIN_PASSWORD}` at registration time.
-
-### 5g. Deploy KmsStack into LocalStack (optional but recommended)
-
-For fresh environments, deploying `KmsStack` first pins the key ID so that any
-ciphertext you create remains valid across LocalStack restarts.
-
-```bash
-# On the VPS, with docker compose up
-cd /opt/eventform/infra/cdk
-pnpm install
-AWS_ENDPOINT_URL=http://localhost:4566 pnpm exec cdklocal deploy KmsStack \
-  --require-approval never
-```
-
-If you skip this step, the boot hook (`infra/compose/localstack/ready.d/01-import-kms-key.sh`)
-creates the key and imports material automatically. The two mechanisms are
-compatible — the boot hook is the fallback and the healing mechanism on restarts.
 
 ### 5h. Start the full application stack
 
@@ -359,7 +332,7 @@ After the first deploy, verify the following manually:
 |---|---|---|
 | VPS (Hetzner CX22) | ~€4.5 | Includes all containers |
 | AWS Cognito | $0 | 50 000 MAU free tier |
-| AWS KMS | $0 | LocalStack runs on VPS — no AWS KMS API calls |
+| Secret encryption | $0 | In-process AES-256-GCM — no KMS, no extra service |
 | Domain | already owned | |
 | **Total** | **~€4–6/mo** | |
 

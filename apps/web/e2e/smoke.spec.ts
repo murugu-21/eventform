@@ -2,7 +2,7 @@
  * Full-stack smoke test.
  *
  * Prerequisites (must be running before executing this test):
- *   - docker compose up -d --wait  (postgres + localstack + kafka + connect)
+ *   - docker compose up -d --wait  (postgres + kafka + connect)
  *   - pnpm connect:register        (Debezium outbox connector RUNNING)
  *   - PORT=3001 node apps/api/dist/main.js
  *   - node apps/worker/dist/main.js
