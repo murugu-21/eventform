@@ -185,11 +185,13 @@ pnpm --filter @eventform/web exec playwright test
 ## Deployment
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checklist
-(AWS/Cognito setup, VPS provisioning, first-time bootstrap, CI/CD secrets).
+(AWS/Cognito + Neon + Cloudflare setup, SSM secrets, EC2 ASG deploy, CI/CD secrets).
 
-**Cost summary (running in production):**
-- VPS (Hetzner CX22 or equivalent): ~€4–6/month
+**Cost summary (running in production, always-on):**
+- EC2 `t4g.small` (`ap-south-1`) + 16 GB gp3 + public IPv4: ~$13/month — scale-to-zero drops this toward $0 when idle
+- Neon Postgres: $0 (free tier, with PITR backups)
 - AWS Cognito: $0 (50 000 MAU free tier)
+- Cloudflare Pages + Tunnel: $0
 - Secret encryption: $0 (in-process AES-256-GCM — no KMS, no extra service)
 - Domain: already owned
 
@@ -201,12 +203,11 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 packages/shared   HMAC utils, Zod event schemas, AES-256-GCM secret cipher
 packages/db       Drizzle schema, migrations, tenant-scoped tx helper
 apps/api          NestJS REST API — auth, forms, endpoints, public submission, deliveries
-apps/worker       Kafka consumer + webhook delivery — idempotent, at-least-once, auto-retry
+apps/worker       Kafka-API consumer (Redpanda) + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
-infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod); cloudflared tunnel → api:3001
-infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack
-infra/prod        bootstrap.sh — first-boot hardening
-.github/workflows ci.yml (tests) + deploy.yml (GHCR images + VPS SSH deploy)
+infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod) + prod-local override; Debezium Server + cloudflared tunnel → api:3001
+infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack (ACM) + ComputeStack (EC2 ASG, ap-south-1)
+.github/workflows ci.yml (tests) + deploy.yml (multi-arch images + Neon migrate + ASG rollout) + deploy-web.yml (Cloudflare Pages)
 docs/DEPLOYMENT.md  Human handoff checklist
 ```
 
