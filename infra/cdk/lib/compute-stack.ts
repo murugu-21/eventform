@@ -110,7 +110,7 @@ export class ComputeStack extends cdk.Stack {
       blockDevices: [
         {
           deviceName: "/dev/xvda",
-          volume: ec2.BlockDeviceVolume.ebs(20, {
+          volume: ec2.BlockDeviceVolume.ebs(16, {
             volumeType: ec2.EbsDeviceVolumeType.GP3,
             encrypted: true,
             deleteOnTermination: true,
