@@ -89,9 +89,9 @@ export class ComputeStack extends cdk.Stack {
       '  echo "COGNITO_CLIENT_ID=$(get /eventform/cognito-client-id)"',
       "} > .env",
       "chmod 600 .env",
-      // Pull prebuilt images, run migrations (idempotent on Neon), start the stack
+      // Pull prebuilt images and start the stack. Migrations run in CI against
+      // Neon (deploy.yml `migrate` job), not on the box.
       "docker compose -f docker-compose.prod.yml pull",
-      "docker compose -f docker-compose.prod.yml --profile setup run --rm migrate",
       "docker compose -f docker-compose.prod.yml up -d",
     );
 
