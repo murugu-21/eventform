@@ -4,7 +4,7 @@ import { exchangeCode } from "@/lib/pkce";
 import type { CognitoConfig } from "@/lib/pkce";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { displayNameFromIdToken } from "@/lib/jwt";
+import { displayNameFromIdToken, emailFromIdToken } from "@/lib/jwt";
 
 function getCognitoCfg(): CognitoConfig {
   return {
@@ -18,9 +18,15 @@ function getCognitoCfg(): CognitoConfig {
 
 const ACCESS_TOKEN_KEY = "eventform.accessToken";
 const REFRESH_TOKEN_KEY = "eventform.refreshToken";
+const EMAIL_KEY = "eventform.email";
 
 export function getAccessToken(): string | null {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+/** The signed-in user's email (from the ID token), for the wake notification. */
+export function getUserEmail(): string | null {
+  return localStorage.getItem(EMAIL_KEY);
 }
 
 export function getRefreshToken(): string | null {
@@ -37,6 +43,7 @@ export function storeTokens(accessToken: string, refreshToken?: string): void {
 export function clearTokens(): void {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
 }
 
 export default function AuthCallbackPage() {
@@ -74,6 +81,13 @@ export default function AuthCallbackPage() {
         const displayName = displayNameFromIdToken(tokens.id_token);
         if (displayName) {
           await api.updateMe(displayName).catch(() => undefined);
+        }
+        // Stash the email (from the ID token) for the scale-to-zero wake
+        // notification — requestWake() sends it so the owner is emailed who
+        // started the box. Best-effort; sign-in must not depend on it.
+        const email = emailFromIdToken(tokens.id_token);
+        if (email) {
+          localStorage.setItem(EMAIL_KEY, email);
         }
         // Re-sync the auth context BEFORE navigating — RequireAuth otherwise
         // still holds the at-mount null sub and bounces back to /login.

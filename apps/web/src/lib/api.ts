@@ -3,7 +3,7 @@ import type {
   Form, FormWithFields, PublicForm, Submission, SubmissionWithForm,
 } from "./types";
 import { refreshTokens } from "./pkce";
-import { getAccessToken, getRefreshToken, storeTokens } from "@/pages/auth-callback";
+import { getAccessToken, getRefreshToken, storeTokens, getUserEmail } from "@/pages/auth-callback";
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 const AUTH_MODE: string = import.meta.env.VITE_AUTH_MODE ?? "dev";
@@ -62,7 +62,12 @@ export async function requestWake(): Promise<void> {
   const authHeader = getAuthHeader();
   if (!authHeader) return;
   try {
-    await fetch(WAKE_URL, { method: "POST", headers: { authorization: authHeader } });
+    await fetch(WAKE_URL, {
+      method: "POST",
+      headers: { authorization: authHeader, "content-type": "application/json" },
+      // Email (from the ID token) so the owner is notified who woke the box.
+      body: JSON.stringify({ email: getUserEmail() ?? undefined }),
+    });
   } catch {
     /* best effort */
   }

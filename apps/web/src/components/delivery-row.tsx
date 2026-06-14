@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ChevronDownIcon, ChevronRightIcon, RefreshCwIcon } from "lucide-react";
@@ -54,7 +54,14 @@ export function StatusBadge({ status }: { status: Delivery["status"] }) {
 // ── Countdown helper ─────────────────────────────────────────────────────────
 
 function RetryCountdown({ nextRetryAt }: { nextRetryAt: string }) {
-  const delta = new Date(nextRetryAt).getTime() - Date.now();
+  // Tick every second so the countdown updates smoothly, independent of the 5s
+  // data refetch (which otherwise makes it jump in ~5s steps).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const delta = new Date(nextRetryAt).getTime() - now;
   if (delta <= 0) return <span className="text-xs text-muted-foreground">soon</span>;
   const s = Math.ceil(delta / 1000);
   if (s < 60) return <span className="text-xs text-amber-600 dark:text-amber-400">in {s}s</span>;
