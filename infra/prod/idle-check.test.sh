@@ -43,7 +43,7 @@ EOF
   af="$tmp/last-activity"
   [ "$content" = "MISSING" ] || printf '%s\n' "$content" > "$af"
 
-  ACTIVITY_FILE="$af" IDLE_MINUTES=30 AWS_REGION=ap-south-1 PATH="$bin:$PATH" \
+  ACTIVITY_FILE="$af" IDLE_MINUTES=30 AWS_REGION=eu-central-1 PATH="$bin:$PATH" \
     sh "$SCRIPT" >/dev/null 2>&1 || true
 
   got="no"

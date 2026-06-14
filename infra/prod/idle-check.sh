@@ -13,7 +13,7 @@ set -eu
 
 ACTIVITY_FILE="${ACTIVITY_FILE:-/opt/eventform/infra/compose/state/last-activity}"
 IDLE_MINUTES="${IDLE_MINUTES:-30}"
-REGION="${AWS_REGION:-ap-south-1}"
+REGION="${AWS_REGION:-eu-central-1}"
 
 log() { echo "[idle-check] $*"; }
 

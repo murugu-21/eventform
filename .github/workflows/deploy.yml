@@ -164,7 +164,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
       - name: Start ASG instance refresh
         if: steps.gate.outputs.skip == 'false'
         run: |

@@ -7,5 +7,5 @@ Wants=network-online.target
 Type=oneshot
 Environment=ACTIVITY_FILE=/opt/eventform/infra/compose/state/last-activity
 Environment=IDLE_MINUTES=30
-Environment=AWS_REGION=ap-south-1
+Environment=AWS_REGION=eu-central-1
 ExecStart=/opt/eventform/infra/prod/idle-check.sh
