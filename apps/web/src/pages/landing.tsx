@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router";
+import { AUTH_MODE } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -185,8 +186,9 @@ export default function LandingPage() {
             <h4 className="font-semibold text-sm mb-1">HMAC signatures</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
               Every webhook is signed with a per-endpoint{" "}
-              <code className="text-xs font-mono">whsec_</code> secret,
-              encrypted at rest with KMS. Reveal or rotate from the endpoints UI.
+              <code className="text-xs font-mono">whsec_</code> secret — your
+              receiver uses it to verify the signature. Encrypted at rest with
+              AES-256-GCM; reveal or rotate it from the endpoints UI.
             </p>
           </div>
         </div>
@@ -210,8 +212,9 @@ export default function LandingPage() {
       <section className="flex flex-col items-center px-6 py-20 gap-4 text-center">
         <h2 className="text-3xl font-bold">Ready to try it?</h2>
         <p className="text-muted-foreground max-w-md text-sm">
-          Sign in with any handle (dev mode — no password required) and build your
-          first form in under a minute.
+          {AUTH_MODE === "cognito"
+            ? "Sign in with Google and build your first form in under a minute."
+            : "Sign in with any handle (dev mode — no password required) and build your first form in under a minute."}
         </p>
         <Button size="lg" onClick={() => void navigate("/login")} className="mt-2">
           Sign in &rarr;
