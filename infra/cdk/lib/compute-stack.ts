@@ -74,6 +74,11 @@ export class ComputeStack extends cdk.Stack {
       "set -euxo pipefail",
       "dnf update -y",
       "dnf install -y docker git awscli",
+      // Cap container logs daemon-wide (json-file is unbounded by default, and
+      // Debezium Server is very chatty) so a long-uptime box can't slowly fill
+      // the disk. Applies to every container; set before docker first starts.
+      "mkdir -p /etc/docker",
+      `printf '%s' '{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}' > /etc/docker/daemon.json`,
       "systemctl enable --now docker",
       // Docker Compose v2 plugin (aarch64)
       "mkdir -p /usr/local/lib/docker/cli-plugins",
@@ -128,7 +133,11 @@ export class ComputeStack extends cdk.Stack {
       blockDevices: [
         {
           deviceName: "/dev/xvda",
-          volume: ec2.BlockDeviceVolume.ebs(16, {
+          // ~4.2 GB used in practice (OS + Docker + images, Debezium's image is
+          // the bulk). 10 GB leaves room for the boot-time image pull spike, the
+          // Redpanda log, and rotated container logs. deleteOnTermination → $0 at
+          // scale-zero. (Floor is the AL2023 snapshot ~2-3 GB; don't go below 8.)
+          volume: ec2.BlockDeviceVolume.ebs(10, {
             volumeType: ec2.EbsDeviceVolumeType.GP3,
             encrypted: true,
             deleteOnTermination: true,
