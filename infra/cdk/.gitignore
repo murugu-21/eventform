@@ -1,6 +1,9 @@
 node_modules/
 dist/
 cdk.out/
+# Per-environment lookup cache (VPC/AMI/account IDs) — regenerated on each
+# synth/deploy; not committed (avoids churn + keeping account/VPC IDs in a public repo).
+cdk.context.json
 *.d.ts
 *.js
 *.js.map
