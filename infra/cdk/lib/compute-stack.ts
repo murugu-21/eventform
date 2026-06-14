@@ -5,6 +5,8 @@ import * as autoscaling from "aws-cdk-lib/aws-autoscaling";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
@@ -270,6 +272,21 @@ export class ComputeStack extends cdk.Stack {
           resources: ["*"],
         }),
       );
+
+      // Notify on a real cold start (0→1). SNS email subscription → you get one
+      // email per startup naming who woke it. The subscriber must confirm the
+      // one-time "confirm subscription" email AWS sends. Pass `-c notifyEmail=`
+      // (empty) to disable.
+      const notifyEmail =
+        (this.node.tryGetContext("notifyEmail") as string | undefined) ?? "murugu2001@gmail.com";
+      if (notifyEmail) {
+        const notifyTopic = new sns.Topic(this, "WakeNotifyTopic", {
+          displayName: "EventForm backend started",
+        });
+        notifyTopic.addSubscription(new subscriptions.EmailSubscription(notifyEmail));
+        notifyTopic.grantPublish(wakeFn);
+        wakeFn.addEnvironment("TOPIC_ARN", notifyTopic.topicArn);
+      }
 
       const wakeApi = new apigwv2.HttpApi(this, "WakeApi", {
         description: "EventForm wake endpoint (Cognito-authorized)",

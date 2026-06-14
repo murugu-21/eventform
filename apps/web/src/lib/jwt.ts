@@ -37,3 +37,9 @@ export function displayNameFromIdToken(idToken: string): string | null {
   }
   return null;
 }
+
+/** The user's email claim from an OIDC ID token, or null. */
+export function emailFromIdToken(idToken: string): string | null {
+  const email = decodeJwtPayload(idToken)?.email;
+  return typeof email === "string" && email.trim().length > 0 ? email.trim() : null;
+}
