@@ -34,15 +34,18 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            {/* Always available — served from the CDN, no backend needed */}
+            {/* Always available — served from the CDN, no backend needed.
+                /login is here (NOT behind the gate): the Cognito/Google flow is
+                independent of the API, and it MUST render while the box is down
+                so a visitor can sign in — signing in is what fires the wake. */}
             <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
             {/* Backend-dependent routes sit behind a health gate: if the API
-                (on the VPS, behind the tunnel) is down or starting up, these
-                render a friendly reconnecting page instead of breaking. */}
+                (behind the tunnel) is down or starting up, these render a
+                friendly reconnecting page instead of breaking. */}
             <Route element={<ApiHealthGate />}>
-              <Route path="/login" element={<LoginPage />} />
               <Route path="/forms/:slug" element={<PublicFormPage />} />
               <Route
                 path="/app"

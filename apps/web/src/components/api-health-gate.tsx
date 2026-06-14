@@ -109,21 +109,19 @@ function InstanceStarting({
           </p>
         ) : (
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            The EventForm instance is being started up — this usually takes a
-            minute. This page will reconnect automatically once it&rsquo;s ready.
+            To save resources, EventForm&rsquo;s backend powers down when idle, so
+            the first visit takes a minute. <strong>Sign in</strong> to wake it —
+            this page reconnects automatically once it&rsquo;s up.
           </p>
         )}
         <div className="mt-6 flex flex-col gap-3">
-          {isPublicForm && (
-            <Link to="/login" className={buttonVariants()}>
-              Sign in to wake it
-            </Link>
-          )}
-          <Button
-            variant={isPublicForm ? "outline" : "default"}
-            onClick={onRetry}
-            disabled={retrying}
-          >
+          {/* Signing in is what fires the wake (the wake endpoint is Cognito-only),
+              so the sign-in CTA shows on every down screen — a logged-out visitor
+              can't wake the box without it. */}
+          <Link to="/login" className={buttonVariants()}>
+            Sign in to wake it
+          </Link>
+          <Button variant="outline" onClick={onRetry} disabled={retrying}>
             {retrying ? "Checking…" : "Retry now"}
           </Button>
           <Link
