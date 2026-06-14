@@ -82,7 +82,7 @@ keepalive + the `/health` probe never go quiet), so idle detection is on-box and
 ## Cost model
 
 - **Idle (desired 0):** ~$0 — no compute, no IPv4, no EBS.
-- **Running:** `t4g.small` (eu-central-1) $0.0192/hr + IPv4 $0.005/hr, prorated by uptime.
+- **Running:** `t4g.small` (eu-west-2) $0.0188/hr + IPv4 $0.005/hr, prorated by uptime.
 - **Non-dollar cost:** the first authenticated visitor per idle window waits ~2–4 min (cold start).
 
 ## Security
@@ -119,9 +119,9 @@ keepalive + the `/health` probe never go quiet), so idle detection is on-box and
 
 - Deploy ComputeStack with the Cognito config so the wake endpoint is provisioned:
   `-c cognitoIssuer=<issuer> -c cognitoClientId=<clientId>`.
-- For the branded wake URL `api-gateway-eu-central-1.murugappan.dev/eventform/wake`: create
-  a REGIONAL ACM cert (eu-central-1) for that host, DNS-validate it in Cloudflare,
-  pass `-c wakeCertArn=<arn>`, then add `CNAME api-gateway-eu-central-1 -> WakeDomainTarget`
+- For the branded wake URL `api-gateway-eu-west-2.murugappan.dev/eventform/wake`: create
+  a REGIONAL ACM cert (eu-west-2) for that host, DNS-validate it in Cloudflare,
+  pass `-c wakeCertArn=<arn>`, then add `CNAME api-gateway-eu-west-2 -> WakeDomainTarget`
   (DNS-only). Without the cert ARN the default execute-api `WakeUrl` is used.
 - Set the SPA's **`VITE_WAKE_URL`** (Cloudflare Pages env) to the stack's
   `WakeUrl` output, then redeploy the SPA.

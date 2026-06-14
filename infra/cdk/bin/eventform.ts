@@ -36,8 +36,8 @@ new AuthStack(app, "AuthStack", {
 // ComputeStack — EC2 ASG (scale-to-zero capable) running the container stack.
 // Requires a default VPC + concrete account/region (CDK_DEFAULT_ACCOUNT/REGION)
 // for the VPC lookup. Deploy with: cdk deploy ComputeStack
-// Region: set CDK_DEFAULT_REGION=eu-central-1 (Frankfurt) — co-located with the
-// Neon DB (also eu-central-1), so the API↔DB hop is in-region. Frankfurt is the
+// Region: set CDK_DEFAULT_REGION=eu-west-2 (London) — co-located with the
+// Neon DB (also eu-west-2), so the API↔DB hop is in-region. London is the
 // best-balanced choice for an India + Europe + US audience (lowest worst-case
 // user latency). Cognito/CertStack stay in us-east-1 (JWKS is cached).
 new ComputeStack(app, "ComputeStack", {

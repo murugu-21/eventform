@@ -9,8 +9,8 @@ Step-by-step runbook to deploy EventForm at `eventform.murugappan.dev` /
 |---|---|
 | Frontend (SPA) | **Cloudflare Pages** (global CDN; always up, independent of the backend) |
 | Ingress | **Cloudflare Tunnel** → `api:3001` directly (outbound-only, zero inbound ports, no reverse proxy) |
-| Compute (API + worker + Redpanda + Debezium) | **AWS EC2 Auto Scaling Group** (Graviton `t4g.small`), Docker Compose, `eu-central-1` |
-| Database | **Neon** (managed serverless Postgres + PITR), `eu-central-1` |
+| Compute (API + worker + Redpanda + Debezium) | **AWS EC2 Auto Scaling Group** (Graviton `t4g.small`), Docker Compose, `eu-west-2` |
+| Database | **Neon** (managed serverless Postgres + PITR), `eu-west-2` |
 | Auth | **AWS Cognito** + Google IdP (free tier), `us-east-1` |
 | Endpoint-secret encryption | In-process **AES-256-GCM** (no KMS, no LocalStack) |
 | Secrets at boot | **AWS SSM Parameter Store** (`/eventform/*`, SecureString) |
@@ -20,9 +20,9 @@ The EC2 box is **stateless** — Postgres is on Neon and the only on-box state
 credentials are committed anywhere: the DB migration creates roles password-less
 and passwords are applied from env.
 
-> **Regions:** The EC2 ASG **and** the Neon DB both live in **`eu-central-1`**
-> (Frankfurt), so the API↔DB hop is **in-region** (no cross-region per-query
-> latency). Frankfurt is the best-balanced choice for an India + Europe + US
+> **Regions:** The EC2 ASG **and** the Neon DB both live in **`eu-west-2`**
+> (London), so the API↔DB hop is **in-region** (no cross-region per-query
+> latency). London is the best-balanced choice for an India + Europe + US
 > audience — lowest worst-case user→API latency. Cognito stays in **`us-east-1`**
 > (and CertStack, if used, *must* be us-east-1 for CloudFront) — JWKS is fetched
 > cross-region and cached, which is fine.
@@ -44,7 +44,7 @@ and passwords are applied from env.
 ```bash
 cd infra/cdk && pnpm install
 pnpm exec cdk bootstrap aws://ACCOUNT_ID/us-east-1   # Cognito (+ CertStack)
-pnpm exec cdk bootstrap aws://ACCOUNT_ID/eu-central-1  # ComputeStack (Mumbai)
+pnpm exec cdk bootstrap aws://ACCOUNT_ID/eu-west-2  # ComputeStack (Mumbai)
 ```
 
 ## Step 2 — Google OAuth client
@@ -76,7 +76,7 @@ hosted domain → `VITE_COGNITO_DOMAIN`.
 
 ## Step 4 — Neon (database)
 
-1. **Create a project** in **`eu-central-1`** (Frankfurt) — co-located with the
+1. **Create a project** in **`eu-west-2`** (London) — co-located with the
    compute box, so the API↔DB hop is in-region.
 2. **Enable logical replication** (Project → Settings → **Logical replication**).
    Debezium CDC requires `wal_level=logical`; without it the connector cannot
@@ -111,15 +111,15 @@ Then:
 (Neon passwords must satisfy its complexity policy — use real generated secrets,
 not the placeholders.)
 
-## Step 5 — Secrets into SSM Parameter Store (eu-central-1)
+## Step 5 — Secrets into SSM Parameter Store (eu-west-2)
 
 The EC2 instance reads these at boot from **its own region** (its IAM role grants
 read on `arn:aws:ssm:<compute-region>:…:parameter/eventform/*`), so the params
-must live in the **compute region — `eu-central-1`**.
-Create each as a **SecureString** in **`eu-central-1`**:
+must live in the **compute region — `eu-west-2`**.
+Create each as a **SecureString** in **`eu-west-2`**:
 
 ```bash
-R=eu-central-1
+R=eu-west-2
 put() { aws ssm put-parameter --region $R --type SecureString --overwrite --name "$1" --value "$2"; }
 put /eventform/database-url        'postgres://<owner>:<pw>@<direct-host>/neondb?sslmode=require'
 put /eventform/database-url-api    'postgres://app_api:<pw>@<pooled-host>/neondb?sslmode=require'
@@ -172,7 +172,7 @@ Configure GitHub **Settings → Secrets and variables → Actions** (`production
 | Repository Variable | Value |
 |---|---|
 | `AWS_ROLE_ARN` | ComputeStack's `GithubDeployRoleArn` output (set **after** Step 8) — enables the keyless ASG rollout |
-| `AWS_REGION` | `eu-central-1` *(optional — already the default)* |
+| `AWS_REGION` | `eu-west-2` *(optional — already the default)* |
 | `VITE_API_URL` | `https://eventform-api.murugappan.dev` *(VITE\_\* only if building the SPA via `deploy-web.yml`; if building on Cloudflare Pages, set them there instead)* |
 | `VITE_AUTH_MODE` | `cognito` |
 | `VITE_COGNITO_DOMAIN` | `https://auth.murugappan.dev` (branded) or the amazoncognito.com hosted domain |
@@ -197,24 +197,24 @@ cd infra/cdk
 # (API Gateway + Cognito authorizer) is provisioned. Omit them and the stack
 # still deploys, just without the wake endpoint (the box won't auto-start).
 # `wakeCertArn` is optional — with it, the wake endpoint gets the custom domain
-# api-gateway-eu-central-1.murugappan.dev/eventform/wake; without it, the default
+# api-gateway-eu-west-2.murugappan.dev/eventform/wake; without it, the default
 # execute-api URL is used. (Create + DNS-validate the cert first — see below.)
-CDK_DEFAULT_REGION=eu-central-1 pnpm exec cdk deploy ComputeStack \
-  -c cognitoIssuer="$(aws ssm get-parameter --region eu-central-1 --name /eventform/cognito-issuer --query Parameter.Value --output text)" \
-  -c cognitoClientId="$(aws ssm get-parameter --region eu-central-1 --name /eventform/cognito-client-id --query Parameter.Value --output text)" \
-  -c wakeCertArn=arn:aws:acm:eu-central-1:<acct>:certificate/<id>
+CDK_DEFAULT_REGION=eu-west-2 pnpm exec cdk deploy ComputeStack \
+  -c cognitoIssuer="$(aws ssm get-parameter --region eu-west-2 --name /eventform/cognito-issuer --query Parameter.Value --output text)" \
+  -c cognitoClientId="$(aws ssm get-parameter --region eu-west-2 --name /eventform/cognito-client-id --query Parameter.Value --output text)" \
+  -c wakeCertArn=arn:aws:acm:eu-west-2:<acct>:certificate/<id>
 ```
 
-**Wake endpoint custom domain** (`api-gateway-eu-central-1.murugappan.dev/eventform/wake`):
+**Wake endpoint custom domain** (`api-gateway-eu-west-2.murugappan.dev/eventform/wake`):
 since `murugappan.dev` is on Cloudflare (not Route53), create the cert yourself,
 then hand CDK its ARN:
-1. **ACM cert** for `api-gateway-eu-central-1.murugappan.dev` in **`eu-central-1`** (regional),
+1. **ACM cert** for `api-gateway-eu-west-2.murugappan.dev` in **`eu-west-2`** (regional),
    DNS validation → add the validation `CNAME` it shows in **Cloudflare** → wait
    for *Issued*. Pass its ARN as `-c wakeCertArn=` above.
 2. After deploy, take the stack's **`WakeDomainTarget`** output and add a DNS
-   record in Cloudflare: `CNAME api-gateway-eu-central-1 → <WakeDomainTarget>`, **DNS-only
+   record in Cloudflare: `CNAME api-gateway-eu-west-2 → <WakeDomainTarget>`, **DNS-only
    (grey cloud, not proxied)** — API Gateway terminates TLS with the ACM cert.
-3. Set the SPA's **`VITE_WAKE_URL`** = `https://api-gateway-eu-central-1.murugappan.dev/eventform/wake`
+3. Set the SPA's **`VITE_WAKE_URL`** = `https://api-gateway-eu-west-2.murugappan.dev/eventform/wake`
    (Cloudflare Pages env) and redeploy the SPA — the `ApiHealthGate` POSTs there
    to start the box on the first authenticated visit.
 
@@ -281,10 +281,10 @@ data is safe on Neon. Manual override (e.g. to force it up for a demo, or down t
 save cost):
 
 ```bash
-ASG=$(aws autoscaling describe-auto-scaling-groups --region eu-central-1 \
+ASG=$(aws autoscaling describe-auto-scaling-groups --region eu-west-2 \
   --query "AutoScalingGroups[?contains(AutoScalingGroupName,'ComputeStack')].AutoScalingGroupName" --output text)
-aws autoscaling set-desired-capacity --region eu-central-1 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
-aws autoscaling set-desired-capacity --region eu-central-1 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
+aws autoscaling set-desired-capacity --region eu-west-2 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
+aws autoscaling set-desired-capacity --region eu-west-2 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
 ```
 
 ### Backups
@@ -296,22 +296,22 @@ console (PITR / branch-from-timestamp). There is no self-managed backup service.
 
 | Resource | ~Monthly |
 |---|---|
-| EC2 `t4g.small` (eu-central-1) + 16 GB gp3 + IPv4 | ~$19 |
+| EC2 `t4g.small` (eu-west-2) + 16 GB gp3 + IPv4 | ~$19 |
 | Neon (free tier) | $0 |
 | Cognito (50k MAU free) | $0 |
 | Cloudflare Pages + Tunnel | $0 |
 | **Total** | **~$19/mo** |
 
-(Frankfurt `t4g.small` is $0.0192/hr; ~$3.65 of the line is the public IPv4.
+(London `t4g.small` is $0.0188/hr; ~$3.65 of the line is the public IPv4.
 Scale-to-zero drops the EC2 + IPv4 line toward $0 when idle, so the real bill
 tracks uptime, not this always-on figure.)
 
 ### Teardown
 
 ```bash
-CDK_DEFAULT_REGION=eu-central-1 pnpm exec cdk destroy ComputeStack
+CDK_DEFAULT_REGION=eu-west-2 pnpm exec cdk destroy ComputeStack
 # Cognito (RETAIN policy protects the user pool; --force to really delete):
 CDK_DEFAULT_REGION=us-east-1 pnpm exec cdk destroy AuthStack -c googleClientId=x -c googleClientSecret=x
 # Neon: delete the project from the Neon console.
-# SSM: aws ssm delete-parameters --region eu-central-1 --names $(aws ssm get-parameters-by-path --region eu-central-1 --path /eventform --query 'Parameters[].Name' --output text)
+# SSM: aws ssm delete-parameters --region eu-west-2 --names $(aws ssm get-parameters-by-path --region eu-west-2 --path /eventform --query 'Parameters[].Name' --output text)
 ```

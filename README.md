@@ -188,7 +188,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 (AWS/Cognito + Neon + Cloudflare setup, SSM secrets, EC2 ASG deploy, CI/CD secrets).
 
 **Cost summary (running in production, always-on):**
-- EC2 `t4g.small` (`eu-central-1`, co-located with Neon) + 16 GB gp3 + public IPv4: ~$19/month — scale-to-zero drops this toward $0 when idle
+- EC2 `t4g.small` (`eu-west-2`, co-located with Neon) + 16 GB gp3 + public IPv4: ~$19/month — scale-to-zero drops this toward $0 when idle
 - Neon Postgres: $0 (free tier, with PITR backups)
 - AWS Cognito: $0 (50 000 MAU free tier)
 - Cloudflare Pages + Tunnel: $0
@@ -206,7 +206,7 @@ apps/api          NestJS REST API — auth, forms, endpoints, public submission,
 apps/worker       Kafka-API consumer (Redpanda) + webhook delivery — idempotent, at-least-once, auto-retry
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
 infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod) + prod-local override; Debezium Server + cloudflared tunnel → api:3001
-infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack (ACM) + ComputeStack (EC2 ASG, eu-central-1)
+infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack (ACM) + ComputeStack (EC2 ASG, eu-west-2)
 .github/workflows ci.yml (tests) + deploy.yml (multi-arch images + Neon migrate + ASG rollout) + deploy-web.yml (Cloudflare Pages)
 docs/DEPLOYMENT.md  Human handoff checklist
 ```
