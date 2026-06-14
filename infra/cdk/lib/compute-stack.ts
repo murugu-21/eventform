@@ -73,7 +73,15 @@ export class ComputeStack extends cdk.Stack {
 
     const userData = ec2.UserData.forLinux();
     userData.addCommands(
-      "set -euxo pipefail",
+      "set -euo pipefail",
+      // Tee all userdata output to a tail-able log, and timestamp every traced
+      // command (PS4) so you can `tail -f /var/log/eventform-userdata.log` and
+      // see how long each boot step (dnf, image pull, compose up) takes. The
+      // duration of a step = the gap to the next line's timestamp.
+      `export PS4='+ [$(date "+%T")] '`,
+      "exec > >(tee -a /var/log/eventform-userdata.log) 2>&1",
+      `echo "=== eventform userdata start: $(date -u) ==="`,
+      "set -x",
       "dnf update -y",
       "dnf install -y docker git awscli",
       // Cap container logs daemon-wide (json-file is unbounded by default, and
@@ -92,6 +100,10 @@ export class ComputeStack extends cdk.Stack {
       // Materialize .env from SSM SecureString params (region from the stack)
       `REGION=${this.region}`,
       "get() { aws ssm get-parameter --region \"$REGION\" --name \"$1\" --with-decryption --query Parameter.Value --output text; }",
+      // Disable xtrace around secret materialization — with set -x, the trace
+      // would print the expanded $(get ...) (the actual Neon URLs, enc key,
+      // tunnel token) into the userdata log. Re-enable after .env is written.
+      "set +x",
       "{",
       '  echo "DATABASE_URL=$(get /eventform/database-url)"',
       '  echo "DATABASE_URL_API=$(get /eventform/database-url-api)"',
@@ -102,6 +114,7 @@ export class ComputeStack extends cdk.Stack {
       '  echo "COGNITO_CLIENT_ID=$(get /eventform/cognito-client-id)"',
       "} > .env",
       "chmod 600 .env",
+      "set -x",
       // Scale-to-zero: the API (non-root `node`, uid 1000) stamps its
       // last-activity file into this bind-mounted dir; pre-create it owned by
       // 1000 so the container can write and the idle-check (root) can read.
@@ -118,6 +131,9 @@ export class ComputeStack extends cdk.Stack {
       "cp /opt/eventform/infra/systemd/eventform-idle.timer /etc/systemd/system/",
       "systemctl daemon-reload",
       "systemctl enable --now eventform-idle.timer",
+      // Completion marker — if this line isn't in the log, boot failed earlier
+      // (set -e exits on the first error), and the last timestamp shows where.
+      `echo "=== eventform userdata done: $(date -u) ==="`,
     );
 
     const launchTemplate = new ec2.LaunchTemplate(this, "LaunchTemplate", {
