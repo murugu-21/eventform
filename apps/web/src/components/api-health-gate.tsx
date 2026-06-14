@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Outlet } from "react-router";
 import { Button } from "@/components/ui/button";
-import { checkApiHealth } from "@/lib/api";
+import { checkApiHealth, requestWake } from "@/lib/api";
 
 const CONTACT_EMAIL = "murugu2001@gmail.com";
 const POLL_INTERVAL_MS = 8000;
@@ -35,6 +35,10 @@ export function ApiHealthGate() {
   // recovers, which tears this effect down (status leaves "down").
   useEffect(() => {
     if (status !== "down") return;
+    // Fire one wake nudge per down-episode (this effect runs once on entering
+    // "down"; the poll below doesn't re-fire it). Scale-to-zero: starts the box
+    // if it's off. Fire-and-forget — the poll loop drives recovery regardless.
+    void requestWake();
     let cancelled = false;
     const id = window.setInterval(() => {
       checkApiHealth().then((ok) => {

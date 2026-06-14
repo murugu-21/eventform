@@ -194,17 +194,28 @@ Configure GitHub **Settings → Secrets and variables → Actions** (`production
 
 ```bash
 cd infra/cdk
-CDK_DEFAULT_REGION=ap-south-1 pnpm exec cdk deploy ComputeStack
+# Pass the Cognito issuer + app client id so the scale-to-zero WAKE endpoint
+# (API Gateway + Cognito authorizer) is provisioned. Omit them and the stack
+# still deploys, just without the wake endpoint (the box won't auto-start).
+CDK_DEFAULT_REGION=ap-south-1 pnpm exec cdk deploy ComputeStack \
+  -c cognitoIssuer="$(aws ssm get-parameter --region ap-south-1 --name /eventform/cognito-issuer --query Parameter.Value --output text)" \
+  -c cognitoClientId="$(aws ssm get-parameter --region ap-south-1 --name /eventform/cognito-client-id --query Parameter.Value --output text)"
 ```
 
 This creates the launch template (`t4g.small`, AL2023 ARM, 16 GB gp3, IMDSv2),
 the ASG (min 0 / max 1 / desired 1), an instance role (SSM Session Manager +
 read `/eventform/*`), and a security group with **no inbound** ports. On boot the
-userdata installs Docker, clones the repo, materializes `.env` from SSM, and runs
-`docker compose -f docker-compose.prod.yml up -d`. Migrations run in CI against
+userdata installs Docker, clones the repo, materializes `.env` from SSM, runs
+`docker compose -f docker-compose.prod.yml up -d`, and installs the
+`eventform-idle.timer` (scale-to-zero idle-stop). Migrations run in CI against
 Neon (the deploy workflow's `migrate` job), not on the box. Debezium Server starts
 streaming from Neon on its own — it parses the connector config from env and needs
 no registration step — and `cloudflared` dials out to the tunnel.
+
+It also provisions the **scale-to-zero wake endpoint** (HTTP API Gateway +
+Cognito authorizer + Lambda). Copy the stack's **`WakeUrl`** output into the
+SPA's **`VITE_WAKE_URL`** (Cloudflare Pages env) and redeploy the SPA, so the
+`ApiHealthGate` can start the box on the first authenticated visit.
 
 It also provisions the **GitHub OIDC provider + `eventform-github-deploy` role**
 (keyless CI deploys). Copy the stack's **`GithubDeployRoleArn`** output into the
@@ -241,9 +252,22 @@ skips the rollout cleanly; re-tag or re-run after setting it.)
 
 ## Operations
 
-### Scaling the box
+### Scaling the box (automatic scale-to-zero)
 
-The ASG is scale-to-zero-capable (min 0 / max 1):
+The ASG (min 0 / max 1) scales itself:
+
+- **Scale-down (idle):** an on-box `systemd` timer (`eventform-idle.timer`, every
+  5 min) runs `idle-check.sh`. When there have been no real (non-`/health`)
+  requests for 30 min, the box sets its own ASG to desired 0 and terminates.
+  Free — no CloudWatch metrics.
+- **Scale-up (wake):** the SPA's `ApiHealthGate` `POST`s the `WakeUrl` (API
+  Gateway + Cognito authorizer) when it sees the API down; a Lambda sets desired
+  1 and a fresh instance boots (~3–4 min cold start). Cognito-only — anonymous
+  visitors don't auto-wake.
+
+A new instance is stateless: userdata re-pulls images and `compose up`s; Postgres
+data is safe on Neon. Manual override (e.g. to force it up for a demo, or down to
+save cost):
 
 ```bash
 ASG=$(aws autoscaling describe-auto-scaling-groups --region ap-south-1 \
@@ -251,10 +275,6 @@ ASG=$(aws autoscaling describe-auto-scaling-groups --region ap-south-1 \
 aws autoscaling set-desired-capacity --region ap-south-1 --auto-scaling-group-name "$ASG" --desired-capacity 0   # stop
 aws autoscaling set-desired-capacity --region ap-south-1 --auto-scaling-group-name "$ASG" --desired-capacity 1   # start (~3–4 min cold start)
 ```
-
-A new instance is stateless: it re-pulls images, re-runs migrations (idempotent),
-and resumes. Postgres data is safe on Neon. (Automated wake-on-visit / idle-stop
-is a future add-on; today it runs always-on at desired 1.)
 
 ### Backups
 
