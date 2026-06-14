@@ -3,7 +3,9 @@
 Multi-tenant form builder with end-to-end webhook delivery, built to demonstrate
 production-grade distributed-systems patterns: transactional outbox, CDC via
 Debezium, idempotent Kafka consumer, row-level security, AES-256-GCM-encrypted
-secrets, and Cognito PKCE auth — all runnable locally with a single `docker compose up`.
+secrets, and Cognito PKCE auth — all runnable locally with no credentials:
+`pnpm db:up` brings up the data plane (Postgres, Redpanda, Debezium) in Docker,
+then the API, worker, and web run as local processes (see [Local quickstart](#local-quickstart)).
 
 ---
 
@@ -115,7 +117,9 @@ git clone https://github.com/murugu-21/eventform
 cd eventform
 pnpm install
 pnpm build
-cp .env.example .env
+# No .env needed for local dev — the dev Postgres uses trust auth and the apps
+# default to password-less localhost. (.env.example documents prod overrides;
+# every line is commented because nothing is required locally.)
 
 pnpm db:up            # postgres + redpanda (kafka api) + debezium server
 pnpm db:migrate       # apply all Drizzle migrations (tables, roles, RLS)
@@ -130,6 +134,23 @@ node apps/worker/dist/main.js
 # Terminal 3 — web dev server
 pnpm --filter @eventform/web dev
 # => http://localhost:5173
+```
+
+### Run the whole stack in Docker (optional smoke test)
+
+To run the API, worker, Debezium, Redpanda, and a throwaway Postgres entirely in
+containers (dev-auth mode, no Neon/Cognito), use the prod compose plus the
+local override:
+
+```bash
+export SECRET_ENC_KEY=$(head -c 32 /dev/urandom | base64)
+docker compose -p eventform-prod \
+  -f infra/compose/docker-compose.prod.yml \
+  -f infra/compose/docker-compose.prod-local.override.yml \
+  up -d --build
+# migrate against the published port, then point a Vite dev server at :8081:
+DATABASE_URL=postgres://eventform@localhost:15432/eventform pnpm db:migrate
+# tear down: docker compose -p eventform-prod down -v
 ```
 
 ---
@@ -165,9 +186,9 @@ pnpm --filter @eventform/web dev
 | `packages/db` | 12 | RLS policies (integration, real Postgres) |
 | `apps/api` | 62 | e2e API routes (NestJS test app), Cognito JWT verifier (local JWKS keypair), zod pipe, exception filter |
 | `apps/worker` | 22 | delivery processor, retry scheduler (SKIP LOCKED), backoff, pipeline e2e (real Kafka) |
-| `apps/web` | 22 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
-| `infra/cdk` | 9 | AuthStack + CertStack CloudFormation template assertions (no AWS) |
-| **Total** | **157** | unit + integration |
+| `apps/web` | 24 | PKCE helpers (RFC 7636 vectors), API client, Cognito callback |
+| `infra/cdk` | 13 | AuthStack + CertStack template assertions + scale-to-zero wake-decision logic (no AWS) |
+| **Total** | **163** | unit + integration |
 | **Playwright smoke** | 2 | full loop: sign in → build form → publish → anonymous submit → delivery delivered |
 
 Run all unit/integration suites:
@@ -188,7 +209,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the step-by-step handoff checkl
 (AWS/Cognito + Neon + Cloudflare setup, SSM secrets, EC2 ASG deploy, CI/CD secrets).
 
 **Cost summary (running in production, always-on):**
-- EC2 `t4g.small` (`eu-west-2`, co-located with Neon) + 16 GB gp3 + public IPv4: ~$19/month — scale-to-zero drops this toward $0 when idle
+- EC2 `t4g.small` (`eu-west-2`, co-located with Neon) + 10 GB gp3 + public IPv4: ~$19/month — scale-to-zero drops this toward $0 when idle
 - Neon Postgres: $0 (free tier, with PITR backups)
 - AWS Cognito: $0 (50 000 MAU free tier)
 - Cloudflare Pages + Tunnel: $0
@@ -207,7 +228,7 @@ apps/worker       Kafka-API consumer (Redpanda) + webhook delivery — idempoten
 apps/web          React 19 + shadcn/ui SPA — form builder, dashboard, Playwright smoke
 infra/compose     docker-compose.yml (dev) + docker-compose.prod.yml (prod) + prod-local override; Debezium Server + cloudflared tunnel → api:3001
 infra/cdk         AWS CDK: AuthStack (Cognito) + CertStack (ACM) + ComputeStack (EC2 ASG, eu-west-2)
-.github/workflows ci.yml (tests) + deploy.yml (multi-arch images + Neon migrate + ASG rollout) + deploy-web.yml (Cloudflare Pages)
+.github/workflows ci.yml (tests) + deploy.yml (multi-arch images + Neon migrate + ASG rollout); the web SPA deploys via Cloudflare Pages' own Git integration, not Actions
 docs/DEPLOYMENT.md  Human handoff checklist
 ```
 
