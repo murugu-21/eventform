@@ -197,10 +197,27 @@ cd infra/cdk
 # Pass the Cognito issuer + app client id so the scale-to-zero WAKE endpoint
 # (API Gateway + Cognito authorizer) is provisioned. Omit them and the stack
 # still deploys, just without the wake endpoint (the box won't auto-start).
+# `wakeCertArn` is optional — with it, the wake endpoint gets the custom domain
+# api-gateway-ind.murugappan.dev/eventform/wake; without it, the default
+# execute-api URL is used. (Create + DNS-validate the cert first — see below.)
 CDK_DEFAULT_REGION=ap-south-1 pnpm exec cdk deploy ComputeStack \
   -c cognitoIssuer="$(aws ssm get-parameter --region ap-south-1 --name /eventform/cognito-issuer --query Parameter.Value --output text)" \
-  -c cognitoClientId="$(aws ssm get-parameter --region ap-south-1 --name /eventform/cognito-client-id --query Parameter.Value --output text)"
+  -c cognitoClientId="$(aws ssm get-parameter --region ap-south-1 --name /eventform/cognito-client-id --query Parameter.Value --output text)" \
+  -c wakeCertArn=arn:aws:acm:ap-south-1:<acct>:certificate/<id>
 ```
+
+**Wake endpoint custom domain** (`api-gateway-ind.murugappan.dev/eventform/wake`):
+since `murugappan.dev` is on Cloudflare (not Route53), create the cert yourself,
+then hand CDK its ARN:
+1. **ACM cert** for `api-gateway-ind.murugappan.dev` in **`ap-south-1`** (regional),
+   DNS validation → add the validation `CNAME` it shows in **Cloudflare** → wait
+   for *Issued*. Pass its ARN as `-c wakeCertArn=` above.
+2. After deploy, take the stack's **`WakeDomainTarget`** output and add a DNS
+   record in Cloudflare: `CNAME api-gateway-ind → <WakeDomainTarget>`, **DNS-only
+   (grey cloud, not proxied)** — API Gateway terminates TLS with the ACM cert.
+3. Set the SPA's **`VITE_WAKE_URL`** = `https://api-gateway-ind.murugappan.dev/eventform/wake`
+   (Cloudflare Pages env) and redeploy the SPA — the `ApiHealthGate` POSTs there
+   to start the box on the first authenticated visit.
 
 This creates the launch template (`t4g.small`, AL2023 ARM, 16 GB gp3, IMDSv2),
 the ASG (min 0 / max 1 / desired 1), an instance role (SSM Session Manager +
@@ -211,11 +228,6 @@ userdata installs Docker, clones the repo, materializes `.env` from SSM, runs
 Neon (the deploy workflow's `migrate` job), not on the box. Debezium Server starts
 streaming from Neon on its own — it parses the connector config from env and needs
 no registration step — and `cloudflared` dials out to the tunnel.
-
-It also provisions the **scale-to-zero wake endpoint** (HTTP API Gateway +
-Cognito authorizer + Lambda). Copy the stack's **`WakeUrl`** output into the
-SPA's **`VITE_WAKE_URL`** (Cloudflare Pages env) and redeploy the SPA, so the
-`ApiHealthGate` can start the box on the first authenticated visit.
 
 It also provisions the **GitHub OIDC provider + `eventform-github-deploy` role**
 (keyless CI deploys). Copy the stack's **`GithubDeployRoleArn`** output into the

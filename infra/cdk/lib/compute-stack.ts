@@ -3,6 +3,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as autoscaling from "aws-cdk-lib/aws-autoscaling";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
@@ -230,6 +231,13 @@ export class ComputeStack extends cdk.Stack {
     const cognitoClientId = this.node.tryGetContext("cognitoClientId") as string | undefined;
     const webOrigin =
       (this.node.tryGetContext("webOrigin") as string | undefined) ?? "https://eventform.murugappan.dev";
+    // Custom domain for the wake endpoint → https://<domain>/<basePath>/wake.
+    // The ACM cert (REGIONAL, this region) must be created + DNS-validated by the
+    // operator (murugappan.dev is on Cloudflare, not Route53), then passed by ARN.
+    const wakeDomainName =
+      (this.node.tryGetContext("wakeDomainName") as string | undefined) ?? "api-gateway-ind.murugappan.dev";
+    const wakeBasePath = (this.node.tryGetContext("wakeBasePath") as string | undefined) ?? "eventform";
+    const wakeCertArn = this.node.tryGetContext("wakeCertArn") as string | undefined;
 
     if (cognitoIssuer && cognitoClientId) {
       const wakeFn = new lambda.Function(this, "WakeFn", {
@@ -271,8 +279,30 @@ export class ComputeStack extends cdk.Stack {
         }),
       });
 
+      // Custom domain + base-path mapping → /<basePath>/wake on the branded host.
+      // Gated on the cert ARN (the cert + its DNS validation are operator-owned,
+      // since the zone is on Cloudflare). Without it, fall back to the default
+      // execute-api URL so the stack still deploys.
+      let wakeUrl = `${wakeApi.apiEndpoint}/wake`;
+      if (wakeCertArn) {
+        const wakeDomain = new apigwv2.DomainName(this, "WakeDomain", {
+          domainName: wakeDomainName,
+          certificate: acm.Certificate.fromCertificateArn(this, "WakeCert", wakeCertArn),
+        });
+        new apigwv2.ApiMapping(this, "WakeApiMapping", {
+          api: wakeApi,
+          domainName: wakeDomain,
+          apiMappingKey: wakeBasePath,
+        });
+        wakeUrl = `https://${wakeDomainName}/${wakeBasePath}/wake`;
+        new cdk.CfnOutput(this, "WakeDomainTarget", {
+          value: wakeDomain.regionalDomainName,
+          description: `DNS: CNAME ${wakeDomainName} -> this target (DNS-only / NOT proxied — API Gateway terminates TLS with the ACM cert)`,
+        });
+      }
+
       new cdk.CfnOutput(this, "WakeUrl", {
-        value: `${wakeApi.apiEndpoint}/wake`,
+        value: wakeUrl,
         description: "Set as the SPA's VITE_WAKE_URL (Cloudflare Pages env); the ApiHealthGate POSTs here to wake the box",
       });
     } else {
