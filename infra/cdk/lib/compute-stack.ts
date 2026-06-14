@@ -235,7 +235,7 @@ export class ComputeStack extends cdk.Stack {
     // The ACM cert (REGIONAL, this region) must be created + DNS-validated by the
     // operator (murugappan.dev is on Cloudflare, not Route53), then passed by ARN.
     const wakeDomainName =
-      (this.node.tryGetContext("wakeDomainName") as string | undefined) ?? "api-gateway-ind.murugappan.dev";
+      (this.node.tryGetContext("wakeDomainName") as string | undefined) ?? "api-gateway-eu-central-1.murugappan.dev";
     const wakeBasePath = (this.node.tryGetContext("wakeBasePath") as string | undefined) ?? "eventform";
     const wakeCertArn = this.node.tryGetContext("wakeCertArn") as string | undefined;
 

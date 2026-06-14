@@ -197,7 +197,7 @@ cd infra/cdk
 # (API Gateway + Cognito authorizer) is provisioned. Omit them and the stack
 # still deploys, just without the wake endpoint (the box won't auto-start).
 # `wakeCertArn` is optional — with it, the wake endpoint gets the custom domain
-# api-gateway-ind.murugappan.dev/eventform/wake; without it, the default
+# api-gateway-eu-central-1.murugappan.dev/eventform/wake; without it, the default
 # execute-api URL is used. (Create + DNS-validate the cert first — see below.)
 CDK_DEFAULT_REGION=eu-central-1 pnpm exec cdk deploy ComputeStack \
   -c cognitoIssuer="$(aws ssm get-parameter --region eu-central-1 --name /eventform/cognito-issuer --query Parameter.Value --output text)" \
@@ -205,16 +205,16 @@ CDK_DEFAULT_REGION=eu-central-1 pnpm exec cdk deploy ComputeStack \
   -c wakeCertArn=arn:aws:acm:eu-central-1:<acct>:certificate/<id>
 ```
 
-**Wake endpoint custom domain** (`api-gateway-ind.murugappan.dev/eventform/wake`):
+**Wake endpoint custom domain** (`api-gateway-eu-central-1.murugappan.dev/eventform/wake`):
 since `murugappan.dev` is on Cloudflare (not Route53), create the cert yourself,
 then hand CDK its ARN:
-1. **ACM cert** for `api-gateway-ind.murugappan.dev` in **`eu-central-1`** (regional),
+1. **ACM cert** for `api-gateway-eu-central-1.murugappan.dev` in **`eu-central-1`** (regional),
    DNS validation → add the validation `CNAME` it shows in **Cloudflare** → wait
    for *Issued*. Pass its ARN as `-c wakeCertArn=` above.
 2. After deploy, take the stack's **`WakeDomainTarget`** output and add a DNS
-   record in Cloudflare: `CNAME api-gateway-ind → <WakeDomainTarget>`, **DNS-only
+   record in Cloudflare: `CNAME api-gateway-eu-central-1 → <WakeDomainTarget>`, **DNS-only
    (grey cloud, not proxied)** — API Gateway terminates TLS with the ACM cert.
-3. Set the SPA's **`VITE_WAKE_URL`** = `https://api-gateway-ind.murugappan.dev/eventform/wake`
+3. Set the SPA's **`VITE_WAKE_URL`** = `https://api-gateway-eu-central-1.murugappan.dev/eventform/wake`
    (Cloudflare Pages env) and redeploy the SPA — the `ApiHealthGate` POSTs there
    to start the box on the first authenticated visit.
 
