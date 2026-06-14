@@ -1,196 +1,135 @@
 # EventForm Scale-to-Zero (wake-on-visit + idle auto-stop)
 
-**Date:** 2026-06-13
-**Status:** Design — pending review
+**Date:** 2026-06-13 (revised 2026-06-14 to match the shipped architecture)
+**Status:** Implemented
 
 ## Overview
 
-Run the EventForm backend on a metered **AWS EC2** instance that is **stopped
-when idle and started on the first real visit**, so we pay for compute only
-while someone is actually using the app. A stopped instance bills ~EBS only
-(~$3.65/mo for 40 GB gp3 in ap-south-1); compute and the public IPv4 charge
-accrue only while running.
+Run the EventForm backend on an **EC2 Auto Scaling Group (min 0 / max 1)** that
+**scales to 0 when idle and back to 1 on the first authenticated visit**, so we
+pay for compute (and the public IPv4) only while someone is using the app. At
+desired 0 there is no instance at all — ~$0 (no EBS either, since the volume is
+`deleteOnTermination`).
 
-This is viable for EventForm specifically because two pieces are already in
-place:
+This is viable because the box is now **stateless**:
 
+- **Postgres is on Neon** (managed) and the Redpanda log + Debezium offset file
+  are disposable. Terminating the instance loses nothing the pipeline needs.
 - The **frontend is on Cloudflare Pages** (always up), so the site shell and the
-  `ApiHealthGate` reconnect screen render even while the box is off.
-- The **pipeline already survives abrupt stop/start.** EBS persists Postgres
-  data, the Redpanda log, and the Debezium replication slot across a stop/start,
-  and the worker's at-least-once + idempotent design tolerates being killed
-  mid-flight. Boot simply runs `docker compose up` and the pipeline resumes.
+  `ApiHealthGate` reconnect screen render while the box is gone.
+- A fresh ASG instance's **userdata already boots the whole stack**
+  (`docker compose up`), so "boot" needs no extra machinery.
 
-## Goal & success criteria
+> This supersedes the original draft (Cloudflare Worker + static IAM keys for
+> wake; on-box `shutdown` reading the Caddy log for idle). Those assumed a single
+> stop/start instance with persistent EBS and an in-compose Postgres — all of
+> which changed (ASG, Neon, no Caddy, no LocalStack).
 
-- A stopped box costs ~EBS only; no compute, no IPv4 charge.
-- A visitor hitting a backend-dependent route when the box is off triggers a
-  start automatically (no manual action), sees the existing "waking up" screen,
-  and lands in the app once it's ready (~2–4 min cold start).
-- The box stops itself **30 minutes after the last real request**, so a visitor
-  who browses for a while resets the timer and eats the cold start at most once.
-- No new always-in-path dependency on the healthy request path; no change to the
-  API proxy chain or the rate-limiter's `TRUST_PROXY` hop count.
+## Architecture — three pieces
 
-## Non-goals
+### 1. Scale-up — wake (API Gateway + Cognito + Lambda)
 
-- Reducing the cold-start floor below ~2 min (Kafka/Debezium/Postgres boot is
-  the limiting factor; out of scope — accepted via the hybrid 30-min idle policy).
-- Serverless rearchitecture (Cloud Run / Neon / push events) — explicitly
-  rejected earlier; it would replace the self-hosted CDC pipeline that is the
-  point of the project.
-- Multi-instance / autoscaling. This is a single box, zero-or-one.
+- **`ApiHealthGate` (FE, extended):** when it transitions to `down`, it fires
+  **one** fire-and-forget `POST` to the wake endpoint per down-episode (the 8-s
+  `/health` poll loop does not re-fire it), then keeps polling until 200.
+- **Wake endpoint:** an **HTTP API Gateway** route `POST /wake` behind a
+  **Cognito JWT authorizer** (same pool the API verifies). CORS-allows the Pages
+  origin. The SPA sends the logged-in user's access token as `Authorization:
+  Bearer`.
+- **Wake Lambda:** `DescribeAutoScalingGroups` → if desired < 1, `SetDesiredCapacity(1)`.
+  Idempotent (1-when-already-1 is a no-op). **Keyless** — a Lambda execution role
+  scoped to `SetDesiredCapacity` on the one ASG; no static credentials anywhere.
+- **Cognito-only by design:** anonymous visitors (landing, public form) can't
+  wake the box. Login goes through Cognito directly (not the box), so a user can
+  sign in while it's off and their session wakes it. Accepted trade-off for a
+  recruiter-login demo.
 
-## Assumptions
+### 2. Boot — self-starting stack (unchanged)
 
-- The backend runs on a single **EC2** instance (ap-south-1, `t4g.medium` or
-  similar Graviton), in a public subnet with auto-assigned public IPv4 (only
-  billed while running; no Elastic IP — the tunnel needs no stable IP).
-- Ingress is the existing **Cloudflare Tunnel** (`cloudflared` dials out); when
-  the box is off the tunnel is down and the API hostname returns an origin error.
-- Docker Compose prod stack as today (Postgres, Redpanda, Debezium, LocalStack,
-  api, worker, caddy, cloudflared, backup).
+A fresh ASG instance's userdata clones the repo, materializes `.env` from SSM,
+and runs `docker compose -f docker-compose.prod.yml up -d`. `cloudflared`
+reconnects outbound → tunnel up → `/health` returns 200 → the gate passes through.
 
-## Architecture
+### 3. Scale-down — on-box idle-stop (no CloudWatch, $0)
 
-Three cooperating pieces: **wake** (start), **boot** (come up), **idle-stop**
-(power down).
+CloudWatch *custom* metrics cost money and `NetworkOut` is too noisy (the tunnel
+keepalive + the `/health` probe never go quiet), so idle detection is on-box and free:
 
-### 1. Wake — W2 (SPA-driven) + C1 (scoped IAM key)
-
-- **`ApiHealthGate` (existing, extended):** when it transitions to `down`, in
-  addition to showing the reconnect page it fires **one** fire-and-forget POST to
-  the wake endpoint per down-episode (client-side debounce so the 8-s poll loop
-  doesn't re-fire it).
-- **Wake Worker (new):** a standalone Cloudflare Worker at a dedicated hostname
-  (`wake.eventform.murugappan.dev`), CORS-allowing the Pages origin. On request:
-  1. `DescribeInstances` → read instance state.
-  2. If `stopped`/`stopping`, call `StartInstances`; otherwise no-op.
-  3. Return `{ state }`.
-  - **Debounce:** a Workers KV key (`wake:lastfired`, ~60 s TTL) prevents repeat
-    `StartInstances` calls during the boot window.
-  - **Rate-limit:** per-IP limit on the Worker to cap abuse (worst case is a
-    running box, bounded by idle-stop — not a breach).
-  - AWS calls signed with `aws4fetch` using the scoped IAM key (Worker secret).
-- **IAM user (C1):** policy allows only `ec2:StartInstances` and
-  `ec2:DescribeInstances` on the single instance ARN. Access key + secret stored
-  as Worker secrets. Provisioned via **CDK** (new `ScaleToZeroStack`, consistent
-  with the existing IaC), which outputs the access key for one-time entry into
-  the Worker.
-- The cold-start UX is unchanged: the existing gate polls `/health` every 8 s and
-  passes through once it returns 200. The email fallback remains for the case
-  where the box never comes up.
-
-### 2. Boot — self-starting stack
-
-- A **systemd unit** (`eventform.service`, oneshot, `WantedBy=multi-user.target`)
-  runs `docker compose -f /opt/eventform/infra/compose/docker-compose.prod.yml up -d`
-  on every boot, so a started instance brings the whole stack up with no SSH.
-- `cloudflared` reconnects outbound → tunnel back up → `/health` returns 200.
-- Durable EBS volumes mean Postgres/Redpanda/Debezium resume with state intact;
-  the retry scheduler fires any deliveries that came due while stopped.
-
-### 3. Idle-stop — S1 (request-activity, on-box)
-
-- A **systemd timer** (`eventform-idle.timer`, every 5 min) runs
-  `infra/prod/idle-check.sh`.
-- The script reads the **Caddy access log**, finds the most recent request
-  **excluding `/health`** (health probes must not count as activity, or the box
-  never idles), and if `now − last_real_request > 30 min`, runs `shutdown`.
-- **Conservative failure mode:** if the log is unreadable/empty or the timestamp
-  can't be parsed, **do not** shut down (never kill a possibly-active box on a
-  read error).
-- **Instance config (critical):** `InstanceInitiatedShutdownBehavior = stop`
-  (not `terminate`) so `shutdown` stops the box and preserves the EBS volumes.
-  Set in CDK / at launch.
-- Shutdown is graceful: host shutdown stops the containers (SIGTERM → the
-  worker's `consumer.disconnect()` drains in-flight work, as already built);
-  durability covers the abrupt case regardless.
+- The **API stamps a last-activity file** (`/state/last-activity`, epoch seconds)
+  on startup and on every **real (non-`/health`) request**, throttled to once/10s.
+  Excluding `/health` is essential — the compose healthcheck hits it every 10s.
+- A **systemd timer** (`eventform-idle.timer`, every 5 min, after a 10-min
+  post-boot grace) runs `idle-check.sh`: if `now − last_activity > 30 min`, it
+  resolves its own ASG (IMDSv2 + `DescribeAutoScalingInstances`) and calls
+  **`SetDesiredCapacity(0)`** — the ASG terminates the box.
+- **Conservative on every failure** (missing/unreadable activity file, no IMDS,
+  no ASG → do nothing): never kill a possibly-active box on a read error.
+- The instance role is scoped to `SetDesiredCapacity` on its own ASG (by name
+  pattern, to avoid an ASG↔launch-template↔role dependency cycle) + the describes.
 
 ## Data flow (happy path)
 
 1. Visitor loads the SPA from Pages (always up); landing renders.
-2. They open a gated route (`/login`, `/forms/:slug`, `/app`). `ApiHealthGate`
-   probes `/health`.
-3. Box is off → gate shows "Waking up the backend" **and** POSTs the wake
-   endpoint once.
-4. Wake Worker: `DescribeInstances` → stopped → `StartInstances` (debounced).
-5. EC2 boots (~2–4 min): `eventform.service` runs `docker compose up`; tunnel
-   reconnects.
-6. Gate keeps polling `/health`; first 200 → passes through to the app.
-7. Each real request is logged by Caddy, resetting the idle clock.
-8. 30 min after the last real request, `idle-check.sh` runs `shutdown` → stopped.
+2. They open a gated route; `ApiHealthGate` probes `/health`.
+3. Box is off → gate shows "Waking up the backend" **and** `POST`s `/wake` once
+   (with their Cognito token).
+4. API Gateway validates the JWT → Lambda → `SetDesiredCapacity(1)`.
+5. ASG launches an instance (~2–4 min): userdata `docker compose up`; tunnel reconnects.
+6. Gate's poll sees the first `/health` 200 → passes through to the app.
+7. Each real request re-stamps the activity file, resetting the idle clock.
+8. 30 min after the last real request, `idle-check.sh` → `SetDesiredCapacity(0)` → terminated.
 
 ## Cost model
 
-- **Stopped:** ~$3.65/mo (40 GB gp3 EBS) + $0 compute + $0 IPv4.
-- **Running:** `t4g.medium` $0.0224/hr + IPv4 $0.005/hr, prorated by uptime.
-- **Example (~2 hr/day active):** ~$5/mo all-in — undercuts the €8 flat VPS.
-- **Crossover:** heavier/steadier traffic pushes uptime up; past ~10–12 hr/day
-  the flat VPS becomes cheaper again. This suits a bursty recruiter-portfolio
-  profile, not a steadily-trafficked app.
-- **Non-dollar cost:** the first visitor in each idle window waits ~2–4 min.
-
-## Error handling
-
-| Case | Behavior |
-|---|---|
-| Wake Worker can't reach AWS / `StartInstances` fails | Return 503; gate keeps polling + showing reconnect; email fallback stands; logged in Worker observability |
-| `StartInstances` while already pending/running | No-op; KV debounce prevents repeat calls |
-| Boot fails (compose error) | Box up but `/health` never 200 → gate reconnects indefinitely → email fallback (same as a failed deploy) |
-| Idle script can't read/parse log | Do **not** shut down (conservative) |
-| Wake endpoint abuse | Per-IP rate-limit + KV debounce; worst case is a running box, capped by idle-stop; scoped IAM = no breach |
+- **Idle (desired 0):** ~$0 — no compute, no IPv4, no EBS.
+- **Running:** `t4g.small` (eu-west-2) $0.0188/hr + IPv4 $0.005/hr, prorated by uptime.
+- **Non-dollar cost:** the first authenticated visitor per idle window waits ~2–4 min (cold start).
 
 ## Security
 
-- IAM user scoped to `ec2:StartInstances` + `ec2:DescribeInstances` on **one**
-  instance ARN; credentials live only as Worker secrets.
-- Wake Worker rate-limited and debounced.
-- `InstanceInitiatedShutdownBehavior=stop` protects against accidental
-  termination / data loss.
-- No new credentials on the box; no change to the API auth or proxy chain.
+- Wake is **authenticated** (Cognito JWT authorizer) — no open AWS surface.
+- Wake Lambda + instance role are least-privilege: `SetDesiredCapacity` on the
+  one ASG only; describes have no resource-level scoping (`*`), as AWS requires.
+- No static AWS credentials anywhere (Lambda exec role + instance role).
 
 ## Testing
 
-- **Wake Worker:** unit-test the decision logic (instance state → action) with a
-  mocked AWS fetch; verify debounce and CORS. (LocalStack EC2 support is
-  unreliable, so AWS calls are mocked rather than integration-tested.)
-- **`idle-check.sh`:** unit-test against fixture access logs — last-real-request
-  parsing, `/health` exclusion, the 30-min threshold, and the empty/unparseable
-  → no-shutdown safety case.
-- **systemd units:** manual verification — `stop` → `start` → `/health` 200
-  within the expected window; idle 30 min → instance `stopped`.
-- **End-to-end (manual, on the box):** stop instance → load SPA → confirm wake
-  fires, box boots, app loads → idle 30 min → confirm auto-stop.
+- **Wake decision** (`infra/cdk/lambda/wake/decide.mjs`): vitest unit tests for
+  desired-0→start, already-up→running/pending, and missing-fields→start
+  (`infra/cdk/test/wake-decide.test.ts`).
+- **`idle-check.sh`**: a shell test (`infra/prod/idle-check.test.sh`) with stubbed
+  `aws`/`curl` — asserts scale-down fires only past the threshold, and the
+  conservative no-op cases (missing/garbage/empty activity file, near-threshold).
+- **End-to-end (manual):** scale to 0 → load SPA, sign in → confirm wake fires,
+  box boots, app loads → idle 30 min → confirm auto scale-to-0.
 
 ## Component / file layout
 
 | Path | Purpose |
 |---|---|
-| `infra/wake-worker/` | Cloudflare Worker (`wrangler.toml`, `src/index.ts`, tests); `aws4fetch` |
-| `infra/systemd/eventform.service` | Boot: `docker compose up -d` |
-| `infra/systemd/eventform-idle.{service,timer}` | 5-min idle check |
-| `infra/prod/idle-check.sh` | Last-real-request detection + `shutdown` |
-| `apps/web/src/lib/api.ts` | `requestWake()` — POST to wake endpoint |
-| `apps/web/src/components/api-health-gate.tsx` | Fire wake once on `down` (debounced) |
-| `infra/cdk/lib/stacks/scale-to-zero-stack.ts` | IAM user + scoped policy (IaC) |
-| `docs/DEPLOYMENT.md` | Scale-to-zero setup: IAM, Worker deploy, systemd install, shutdown-behavior |
+| `infra/cdk/lambda/wake/{index,decide}.mjs` | Wake Lambda (decision split out for tests) |
+| `infra/cdk/lib/compute-stack.ts` | Wake Lambda + HTTP API + Cognito authorizer + ASG perms; idle systemd install in userdata |
+| `apps/api/src/activity.ts` + `activity.interceptor.ts` | Last-activity stamp (startup + per real request) |
+| `infra/compose/docker-compose.prod.yml` | `/state` volume + `ACTIVITY_FILE` for the api service |
+| `infra/prod/idle-check.sh` (+ `.test.sh`) | Idle detection → `SetDesiredCapacity(0)` |
+| `infra/systemd/eventform-idle.{service,timer}` | 5-min idle check (installed by userdata) |
+| `apps/web/src/lib/api.ts` + `components/api-health-gate.tsx` | `requestWake()` + gate wiring; `VITE_WAKE_URL` |
 
-## Manual / dashboard steps (can't be scripted from here)
+## Operator steps
 
-- Deploy the Wake Worker (`wrangler deploy`) and set its secrets (IAM key,
-  instance ID, region); bind `wake.eventform.murugappan.dev`.
-- Set the EC2 instance's shutdown behavior to `stop` (CDK if the instance is
-  managed there; otherwise `aws ec2 modify-instance-attribute`).
-- Install the systemd units on the box (the deploy flow / cloud-init copies them).
+- Deploy ComputeStack with the Cognito config so the wake endpoint is provisioned:
+  `-c cognitoIssuer=<issuer> -c cognitoClientId=<clientId>`.
+- For the branded wake URL `api-gateway-eu-west-2.murugappan.dev/eventform/wake`: create
+  a REGIONAL ACM cert (eu-west-2) for that host, DNS-validate it in Cloudflare,
+  pass `-c wakeCertArn=<arn>`, then add `CNAME api-gateway-eu-west-2 -> WakeDomainTarget`
+  (DNS-only). Without the cert ARN the default execute-api `WakeUrl` is used.
+- Set the SPA's **`VITE_WAKE_URL`** (Cloudflare Pages env) to the stack's
+  `WakeUrl` output, then redeploy the SPA.
+- The idle timer and state dir are installed automatically by the instance userdata.
 
 ## Open questions / risks
 
-1. **Cold-start length** is inherent (~2–4 min). Accepted via the hybrid policy;
-   if it proves too long in practice, a pre-baked AMI with images pre-pulled is a
-   follow-up, not part of this design.
-2. **Is the EC2 instance managed in CDK?** Today the box is provisioned manually
-   (cloud-init). The IAM user is CDK; the instance itself may stay manual. The
-   shutdown-behavior step adapts accordingly.
-3. **Wake endpoint hostname:** dedicated `wake.eventform.murugappan.dev` to avoid
-   Pages/Worker route conflicts on the apex; `*.workers.dev` is the fallback.
+1. **Cold start (~2–4 min)** is inherent (Redpanda/Debezium/api boot + image
+   pulls). A pre-baked AMI with images pre-pulled is a possible follow-up.
+2. **Anonymous wake** is intentionally unsupported (Cognito-only). If public-form
+   traffic needs to wake the box, add a separate rate-limited unauthenticated route.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the EventForm idle check every 5 minutes
+
+[Timer]
+# Hold off 10 min after boot so a freshly-woken box isn't scaled down before the
+# visitor that woke it has a chance to use it; then check every 5 min.
+OnBootSec=10min
+OnUnitActiveSec=5min
+Unit=eventform-idle.service
+
+[Install]
+WantedBy=timers.target

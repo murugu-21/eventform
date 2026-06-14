@@ -110,6 +110,12 @@ services:
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID}
       CORS_ORIGINS: https://eventform.murugappan.dev
       SECRET_ENC_KEY: ${SECRET_ENC_KEY}
+      # Scale-to-zero: the API stamps last real-request time here; the on-box
+      # idle-check reads its mtime. Host ./state is chowned to uid 1000 (the
+      # container's `node` user) by the instance userdata so the file is writable.
+      ACTIVITY_FILE: /state/last-activity
+    volumes:
+      - ./state:/state
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 10s

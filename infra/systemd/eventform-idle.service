@@ -1,0 +1,11 @@
+[Unit]
+Description=EventForm idle check — scale the ASG to 0 after inactivity
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ACTIVITY_FILE=/opt/eventform/infra/compose/state/last-activity
+Environment=IDLE_MINUTES=30
+Environment=AWS_REGION=eu-west-2
+ExecStart=/opt/eventform/infra/prod/idle-check.sh

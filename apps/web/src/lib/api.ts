@@ -7,6 +7,8 @@ import { getAccessToken, getRefreshToken, storeTokens } from "@/pages/auth-callb
 
 const API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 const AUTH_MODE: string = import.meta.env.VITE_AUTH_MODE ?? "dev";
+// Scale-to-zero wake endpoint (API Gateway). Empty in dev → requestWake() no-ops.
+const WAKE_URL: string = import.meta.env.VITE_WAKE_URL ?? "";
 const DEV_SUB_KEY = "eventform.devSub";
 
 const COGNITO_CFG = {
@@ -46,6 +48,24 @@ function getAuthHeader(): string | null {
   const sub = getDevSub();
   if (!sub) return null;
   return `Bearer dev_${sub}`;
+}
+
+/**
+ * Fire-and-forget nudge to wake the scale-to-zero backend. The ApiHealthGate
+ * calls this once when it detects the API down. No-op when no wake endpoint is
+ * configured (dev) or the visitor isn't authenticated — wake is Cognito-only,
+ * so anonymous visitors fall back to retrying once the box is up. The gate keeps
+ * polling /health regardless, so a failed wake never blocks recovery.
+ */
+export async function requestWake(): Promise<void> {
+  if (!WAKE_URL) return;
+  const authHeader = getAuthHeader();
+  if (!authHeader) return;
+  try {
+    await fetch(WAKE_URL, { method: "POST", headers: { authorization: authHeader } });
+  } catch {
+    /* best effort */
+  }
 }
 
 /** Attempt one token refresh. Returns new access token or throws. */
