@@ -268,7 +268,7 @@ export class ComputeStack extends cdk.Stack {
 
     if (cognitoIssuer && cognitoClientId) {
       const wakeFn = new lambda.Function(this, "WakeFn", {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         code: lambda.Code.fromAsset(path.join(__dirname, "..", "lambda", "wake")),
         timeout: cdk.Duration.seconds(10),
