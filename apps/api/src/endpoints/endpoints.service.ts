@@ -1,12 +1,10 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
-import { and, asc, count, eq } from "drizzle-orm";
-import { endpoints, withTenant } from "@eventform/db";
+import { withTenant } from "@eventform/db";
 import { generateEndpointSecret, SecretCipher } from "@eventform/shared";
 import { API_POOL, SECRET_CIPHER } from "../db/db.module";
 import { CreateEndpointDto, UpdateEndpointDto } from "./endpoints.schemas";
-
-type EndpointRow = typeof endpoints.$inferSelect;
+import { ENDPOINT_REPOSITORY, EndpointRepository, EndpointRow } from "./endpoints.repository";
 
 function publicView(row: EndpointRow) {
   const { secretCiphertext: _omitted, ...rest } = row;
@@ -18,6 +16,7 @@ export class EndpointsService {
   constructor(
     @Inject(API_POOL) private readonly pool: Pool,
     @Inject(SECRET_CIPHER) private readonly cipher: SecretCipher,
+    @Inject(ENDPOINT_REPOSITORY) private readonly repo: EndpointRepository,
   ) {}
 
   async create(tenantId: string, dto: CreateEndpointDto) {
@@ -25,41 +24,26 @@ export class EndpointsService {
     const secretCiphertext = await this.cipher.encrypt(secret, tenantId);
     const row = await withTenant(this.pool, tenantId, async (db) => {
       // Cap endpoints at 20 per tenant.
-      // NOTE: a loop-of-20-creates e2e would be slow; the cap is documented here
-      // and verified by code review. A future unit-ish e2e can monkeypatch the
-      // count query if needed.
-      const [{ value: existing }] = await db
-        .select({ value: count() })
-        .from(endpoints)
-        .where(eq(endpoints.tenantId, tenantId));
+      const existing = await this.repo.countByTenant(db, tenantId);
       if (existing >= 20) {
         throw new ConflictException("endpoint limit reached (20)");
       }
-      const [created] = await db
-        .insert(endpoints)
-        .values({ tenantId, name: dto.name, url: dto.url, secretCiphertext })
-        .returning();
-      return created;
+      return this.repo.insert(db, { tenantId, name: dto.name, url: dto.url, secretCiphertext });
     });
     return { ...publicView(row), secret };
   }
 
   list(tenantId: string) {
     return withTenant(this.pool, tenantId, async (db) => {
-      const rows = await db.select().from(endpoints).orderBy(asc(endpoints.createdAt));
+      const rows = await this.repo.listByTenant(db);
       return rows.map(publicView);
     });
   }
 
   async update(tenantId: string, id: string, dto: UpdateEndpointDto) {
-    const row = await withTenant(this.pool, tenantId, async (db) => {
-      const [updated] = await db
-        .update(endpoints)
-        .set(dto)
-        .where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)))
-        .returning();
-      return updated;
-    });
+    const row = await withTenant(this.pool, tenantId, (db) =>
+      this.repo.update(db, id, tenantId, dto),
+    );
     if (!row) {
       throw new NotFoundException("endpoint not found");
     }
@@ -67,20 +51,18 @@ export class EndpointsService {
   }
 
   async remove(tenantId: string, id: string) {
-    const removed = await withTenant(this.pool, tenantId, async (db) => {
-      const rows = await db.delete(endpoints).where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId))).returning();
-      return rows[0];
-    });
+    const removed = await withTenant(this.pool, tenantId, (db) =>
+      this.repo.remove(db, id, tenantId),
+    );
     if (!removed) {
       throw new NotFoundException("endpoint not found");
     }
   }
 
   async revealSecret(tenantId: string, id: string) {
-    const row = await withTenant(this.pool, tenantId, async (db) => {
-      const [found] = await db.select().from(endpoints).where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)));
-      return found;
-    });
+    const row = await withTenant(this.pool, tenantId, (db) =>
+      this.repo.findById(db, id, tenantId),
+    );
     if (!row) {
       throw new NotFoundException("endpoint not found");
     }
@@ -91,14 +73,9 @@ export class EndpointsService {
   async rotateSecret(tenantId: string, id: string) {
     const secret = generateEndpointSecret();
     const secretCiphertext = await this.cipher.encrypt(secret, tenantId);
-    const row = await withTenant(this.pool, tenantId, async (db) => {
-      const [updated] = await db
-        .update(endpoints)
-        .set({ secretCiphertext })
-        .where(and(eq(endpoints.id, id), eq(endpoints.tenantId, tenantId)))
-        .returning();
-      return updated;
-    });
+    const row = await withTenant(this.pool, tenantId, (db) =>
+      this.repo.updateSecret(db, id, tenantId, secretCiphertext),
+    );
     if (!row) {
       throw new NotFoundException("endpoint not found");
     }
