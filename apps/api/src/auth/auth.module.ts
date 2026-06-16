@@ -7,11 +7,14 @@ import { DevTokenVerifier } from "./dev-token-verifier";
 import { MeController } from "./me.controller";
 import { TenantsService } from "./tenants.service";
 import { TOKEN_VERIFIER } from "./token-verifier";
+import { TENANT_REPOSITORY } from "./tenants.repository";
+import { DrizzleTenantRepository } from "./tenants.repository.drizzle";
 
 @Module({
   controllers: [MeController],
   providers: [
     TenantsService,
+    { provide: TENANT_REPOSITORY, useClass: DrizzleTenantRepository },
     {
       provide: TOKEN_VERIFIER,
       useFactory: () => {
