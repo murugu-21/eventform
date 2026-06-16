@@ -9,11 +9,10 @@ import { DeliveryWrite, PublicFormRecord, PublicRepository } from "./public.repo
 export class DrizzlePublicRepository implements PublicRepository {
   constructor(@Inject(API_POOL) private readonly pool: Pool) {}
 
-  async findPublishedFormBySlug(_x: Executor, slug: string): Promise<PublicFormRecord | null> {
+  async findPublishedFormBySlug(slug: string): Promise<PublicFormRecord | null> {
     // Raw SQL preserves the exact anonymous read the service used (RLS public
-    // policies apply because no app.tenant_id is set on a pool executor).
-    // The pool executor passed in (_x) is pool-bound; using the underlying pool
-    // directly keeps the read off any tenant transaction.
+    // policies apply because no app.tenant_id is set). This method always runs
+    // on the pool (no tenant context) — no Executor param is accepted.
     const session = this.pool;
     const form = await session.query(
       `SELECT id, tenant_id, title, public_slug FROM forms WHERE public_slug = $1`,

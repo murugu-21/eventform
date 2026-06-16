@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
-import { poolExecutor, withTenant } from "@eventform/db";
+import { withTenant } from "@eventform/db";
 import type { SubmissionReceivedEvent } from "@eventform/shared";
 import { API_POOL } from "../db/db.module";
 import { PUBLIC_REPOSITORY, PublicFormRecord, PublicRepository } from "./public.repository";
@@ -35,7 +35,7 @@ export class PublicService {
 
   /** Anonymous read — RLS public-read policies scope to published forms. */
   async resolvePublishedForm(slug: string): Promise<ResolvedForm> {
-    const record = await this.repo.findPublishedFormBySlug(poolExecutor(this.pool), slug);
+    const record = await this.repo.findPublishedFormBySlug(slug);
     if (!record) {
       throw new NotFoundException("form not found");
     }

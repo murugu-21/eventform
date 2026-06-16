@@ -27,10 +27,10 @@ export interface DeliveryWrite {
 
 export interface PublicRepository {
   /**
-   * Anonymous read: runs on a POOL executor (no tenant set) so the RLS
+   * Anonymous read: always runs on the pool (no tenant context) so the RLS
    * public-read policies scope to published forms. Returns null if not found.
    */
-  findPublishedFormBySlug(x: Executor, slug: string): Promise<PublicFormRecord | null>;
+  findPublishedFormBySlug(slug: string): Promise<PublicFormRecord | null>;
   /** Active endpoints for the tenant — used to fan out deliveries. */
   listActiveEndpointIds(x: Executor, tenantId: string): Promise<string[]>;
   /** Insert the submission and return its id. */
