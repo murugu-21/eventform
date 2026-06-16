@@ -3,6 +3,8 @@ import { ConflictException, Inject, Injectable, NotFoundException } from "@nestj
 import { Pool } from "pg";
 import { withTenant } from "@eventform/db";
 import { API_POOL } from "../db/db.module";
+import { canRetryDelivery } from "../domain/delivery-rules";
+import { rebuildRetryEvent } from "../domain/submission-event";
 import { ListDeliveriesQuery } from "./deliveries.schemas";
 import { DELIVERY_REPOSITORY, DeliveryRepository } from "./deliveries.repository";
 
@@ -35,11 +37,11 @@ export class DeliveriesService {
       if (!delivery) {
         throw new NotFoundException("delivery not found");
       }
-      if (delivery.status !== "failed") {
+      if (!canRetryDelivery(delivery.status)) {
         throw new ConflictException("only failed deliveries can be retried");
       }
       const eventId = randomUUID();
-      const payload = { ...delivery.payload, eventId, attempt: 1 };
+      const payload = rebuildRetryEvent(delivery.payload, eventId);
       return this.repo.reEmitRetry(db, { delivery, tenantId, eventId, payload });
     });
   }

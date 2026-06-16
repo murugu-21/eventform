@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
 import { withTenant } from "@eventform/db";
-import type { SubmissionReceivedEvent } from "@eventform/shared";
 import { API_POOL } from "../db/db.module";
+import { buildSubmissionReceivedEvent } from "../domain/submission-event";
 import { PUBLIC_REPOSITORY, PublicFormRecord, PublicRepository } from "./public.repository";
 
 export interface PublicField {
@@ -64,21 +63,15 @@ export class PublicService {
 
       const endpointIds = await this.repo.listActiveEndpointIds(db, form.tenantId);
       for (const endpointId of endpointIds) {
-        const deliveryId = randomUUID();
-        const eventId = randomUUID();
-        const payload: SubmissionReceivedEvent = {
-          eventId,
-          type: "submission.received",
-          attempt: 1,
+        const { deliveryId, eventId, payload } = buildSubmissionReceivedEvent({
           tenantId: form.tenantId,
           formId: form.id,
           formTitle: form.title,
           submissionId,
           endpointId,
-          deliveryId,
           answers,
-          submittedAt: submittedAt.toISOString(),
-        };
+          submittedAt,
+        });
         await this.repo.insertDeliveryWithOutbox(db, form.tenantId, {
           deliveryId,
           endpointId,

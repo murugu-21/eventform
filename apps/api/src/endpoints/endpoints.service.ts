@@ -1,8 +1,9 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { Pool } from "pg";
 import { withTenant } from "@eventform/db";
-import { generateEndpointSecret, SecretCipher } from "@eventform/shared";
+import { SecretCipher } from "@eventform/shared";
 import { API_POOL, SECRET_CIPHER } from "../db/db.module";
+import { EndpointSecret } from "../domain/endpoint-secret";
 import { CreateEndpointDto, UpdateEndpointDto } from "./endpoints.schemas";
 import { ENDPOINT_REPOSITORY, EndpointRepository, EndpointRow } from "./endpoints.repository";
 
@@ -20,8 +21,8 @@ export class EndpointsService {
   ) {}
 
   async create(tenantId: string, dto: CreateEndpointDto) {
-    const secret = generateEndpointSecret();
-    const secretCiphertext = await this.cipher.encrypt(secret, tenantId);
+    const secret = EndpointSecret.generate();
+    const secretCiphertext = await this.cipher.encrypt(secret.value, tenantId);
     const row = await withTenant(this.pool, tenantId, async (db) => {
       // Cap endpoints at 20 per tenant.
       const existing = await this.repo.countByTenant(db, tenantId);
@@ -30,7 +31,7 @@ export class EndpointsService {
       }
       return this.repo.insert(db, { tenantId, name: dto.name, url: dto.url, secretCiphertext });
     });
-    return { ...publicView(row), secret };
+    return { ...publicView(row), secret: secret.value };
   }
 
   list(tenantId: string) {
@@ -71,14 +72,14 @@ export class EndpointsService {
   }
 
   async rotateSecret(tenantId: string, id: string) {
-    const secret = generateEndpointSecret();
-    const secretCiphertext = await this.cipher.encrypt(secret, tenantId);
+    const secret = EndpointSecret.generate();
+    const secretCiphertext = await this.cipher.encrypt(secret.value, tenantId);
     const row = await withTenant(this.pool, tenantId, (db) =>
       this.repo.updateSecret(db, id, tenantId, secretCiphertext),
     );
     if (!row) {
       throw new NotFoundException("endpoint not found");
     }
-    return { ...publicView(row), secret };
+    return { ...publicView(row), secret: secret.value };
   }
 }
