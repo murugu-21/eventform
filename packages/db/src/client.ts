@@ -4,6 +4,28 @@ import * as schema from "./schema";
 
 export type Db = NodePgDatabase<typeof schema>;
 
+/**
+ * A query executor handed to repositories. It is just a Drizzle handle:
+ * - tx-bound (from withTenant) for atomic, tenant-scoped work, or
+ * - pool-bound (from poolExecutor) for anonymous reads under RLS public policies.
+ * Repositories never open their own connection; the caller chooses the executor.
+ */
+export type Executor = Db;
+
+let pooled: Db | undefined;
+
+/**
+ * A pool-bound Drizzle handle for non-transactional / anonymous reads (no
+ * `SET LOCAL app.tenant_id`). Memoized per process. Each query borrows a pool
+ * connection. Do NOT use for multi-statement atomic work — use withTenant.
+ */
+export function poolExecutor(pool: Pool): Db {
+  if (!pooled) {
+    pooled = drizzle(pool, { schema });
+  }
+  return pooled;
+}
+
 export function createPool(connectionString: string): Pool {
   return new Pool({ connectionString, max: 10 });
 }
