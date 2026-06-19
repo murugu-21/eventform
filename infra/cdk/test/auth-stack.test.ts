@@ -71,6 +71,21 @@ describe("AuthStack", () => {
     });
   });
 
+  it("creates a second app client for chat-app with its own callback URLs", () => {
+    const template = Template.fromStack(makeStack());
+    template.resourceCountIs("AWS::Cognito::UserPoolClient", 2);
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      CallbackURLs: [
+        "https://chat.murugappan.dev/auth/callback",
+        "http://localhost:5173/auth/callback",
+      ],
+      LogoutURLs: ["https://chat.murugappan.dev", "http://localhost:5173"],
+      GenerateSecret: false,
+      AllowedOAuthFlows: ["code"],
+      SupportedIdentityProviders: Match.arrayWith(["Google"]),
+    });
+  });
+
   it("creates a Cognito hosted domain with the configured prefix", () => {
     const template = Template.fromStack(makeStack());
     template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {

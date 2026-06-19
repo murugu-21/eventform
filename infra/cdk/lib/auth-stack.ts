@@ -24,6 +24,9 @@ export class AuthStack extends cdk.Stack {
     const googleClientSecret = this.node.tryGetContext("googleClientSecret") as string | undefined;
     const cognitoDomainPrefix = (this.node.tryGetContext("cognitoDomainPrefix") as string | undefined) ?? "eventform-auth";
     const webHost = (this.node.tryGetContext("webHost") as string | undefined) ?? "eventform.murugappan.dev";
+    // Second SPA (chat-app) reuses THIS pool + hosted UI domain so a user signs
+    // in once across both apps. Override host via: -c chatWebHost=chat.murugappan.dev
+    const chatWebHost = (this.node.tryGetContext("chatWebHost") as string | undefined) ?? "chat.murugappan.dev";
 
     if (!googleClientId) throw new Error("Context key 'googleClientId' is required (-c googleClientId=<id>)");
     if (!googleClientSecret) throw new Error("Context key 'googleClientSecret' is required (-c googleClientSecret=<secret>)");
@@ -118,6 +121,35 @@ export class AuthStack extends cdk.Stack {
     // The app client must be created after the Google IdP is registered
     appClient.node.addDependency(googleIdp);
 
+    // Second app client: chat-app. A separate SPA on its own origin, but it
+    // reuses this user pool and hosted UI domain. Because the Cognito SSO
+    // session cookie lives on the shared hosted-UI domain, a user who has
+    // signed in to eventform is silently signed in to chat-app (and vice
+    // versa) — only the callback URLs and client id differ. PKCE, no secret.
+    const chatAppClient = new cognito.UserPoolClient(this, "ChatAppClient", {
+      userPool,
+      userPoolClientName: "chat-app-web",
+      generateSecret: false,
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PROFILE,
+        ],
+        callbackUrls: [
+          `https://${chatWebHost}/auth/callback`,
+          "http://localhost:5173/auth/callback",
+        ],
+        logoutUrls: [
+          `https://${chatWebHost}`,
+          "http://localhost:5173",
+        ],
+      },
+      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.GOOGLE],
+    });
+    chatAppClient.node.addDependency(googleIdp);
+
     // ---- Outputs ----
     this.issuerUrl = `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`;
     this.clientId = appClient.userPoolClientId;
@@ -131,6 +163,13 @@ export class AuthStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ClientId", {
       value: this.clientId,
       description: "Cognito app client ID (set as COGNITO_CLIENT_ID / VITE_COGNITO_CLIENT_ID)",
+    });
+
+    new cdk.CfnOutput(this, "ChatAppClientId", {
+      value: chatAppClient.userPoolClientId,
+      description:
+        "chat-app Cognito app client ID. Set as chat-app's COGNITO_CLIENT_ID / VITE_COGNITO_CLIENT_ID. " +
+        "chat-app's COGNITO_ISSUER = this stack's IssuerUrl (same pool); hosted UI domain is shared (SSO).",
     });
 
     new cdk.CfnOutput(this, "HostedDomain", {
