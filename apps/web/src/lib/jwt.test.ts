@@ -3,7 +3,7 @@ import { decodeJwtPayload, displayNameFromIdToken } from "./jwt";
 
 function fakeJwt(payload: Record<string, unknown>): string {
   const b64 = (o: unknown) =>
-    Buffer.from(JSON.stringify(o)).toString("base64url");
+    btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   return `${b64({ alg: "RS256" })}.${b64(payload)}.signature`;
 }
 

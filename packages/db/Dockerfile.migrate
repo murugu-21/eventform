@@ -6,7 +6,7 @@
 #   docker compose -f infra/compose/docker-compose.prod.yml run --rm migrate
 # Or via setup profile:
 #   docker compose -f infra/compose/docker-compose.prod.yml --profile setup up migrate
-FROM node:22-alpine
+FROM node:24-alpine
 RUN corepack enable
 WORKDIR /repo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
