@@ -2,3 +2,6 @@ packages:
   - "apps/*"
   - "packages/*"
   - "infra/cdk"
+allowBuilds:
+  esbuild: true
+  "@swc/core": true
