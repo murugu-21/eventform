@@ -12,7 +12,7 @@ export const submissionReceivedSchema = z.object({
   submissionId: z.string().uuid(),
   endpointId: z.string().uuid(),
   deliveryId: z.string().uuid(),
-  answers: z.record(z.string()),
+  answers: z.record(z.string(), z.string()),
   submittedAt: z.string().datetime(),
 }).strict();
 
